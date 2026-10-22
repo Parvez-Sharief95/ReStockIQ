@@ -1,6 +1,6 @@
 # BUILD_STATUS.md — Inventory Reorder Planner
 
-## Current Phase: PHASE 5 COMPLETE — Awaiting approval for Phase 6
+## Current Phase: PHASE 6 COMPLETE — Awaiting approval for Phase 7
 
 ---
 
@@ -14,7 +14,7 @@
 | 3 | Deterministic Inventory Decision Engine | ✅ Complete | See Phase 3 report (42 unit tests passed) |
 | 4 | Source Retrieval & Evidence | ✅ Complete | See Phase 4 report (54 unit tests passed) |
 | 5 | Reorder Requests, Approval, Idempotency & Verification | ✅ Complete | See Phase 5 report (68 unit tests passed) |
-| 6 | Gemini Tool Use & Agent Orchestration | ⏳ Not started | — |
+| 6 | Gemini Tool Use & Agent Orchestration | ✅ Complete | See Phase 6 report (81 unit tests passed) |
 | 7 | React Frontend & User Experience | ⏳ Not started | — |
 | 8 | API Integration & TC1–TC4 Acceptance Tests | ⏳ Not started | — |
 | 9 | Vercel & Free-Tier Deployment Review | ⏳ Not started | — |
@@ -265,8 +265,46 @@ Stable `idempotency_key` field on `ReorderRequest`; DB uniqueness constraint pla
 
 ---
 
+## Phase 6 Report
+
+### Implementation
+- **Module:** [`backend/app/services/agent_orchestrator.py`](file:///c:/Users/SHARIEF%20PARAVEZ/OneDrive/Desktop/Invertory%20Reorder%20Planner/backend/app/services/agent_orchestrator.py)
+- **Orchestrator Class:** `GeminiOrchestrator` managing Gemini function calling, deterministic fallback, bounded turns, and prompt injection defense.
+- **Tool Declarations:** 5 narrowly defined tools adhering strictly to Gemini function calling schema (`GEMINI_TOOL_DECLARATIONS`):
+  1. `get_inventory_and_orders`: Retrieves stock, sales history, supplier terms, and open orders with evidence provenance.
+  2. `run_deterministic_analysis`: Delegates lead-time demand, shortfall, pack-size rounding, and cost calculations to `calculation_engine.py`.
+  3. `prepare_reorder_request`: Drafts reorder requests with immutable versioning and idempotency keys in `pending_approval` state.
+  4. `check_approval_status`: Queries human approval status and active version without permitting the LLM to grant approval.
+  5. `verify_reorder_outcome`: Executes independent verification comparing actual vs intended SKU, quantity, pack size, and duplicate PO references.
+
+### Safety Boundaries & Architecture
+- **Arithmetic Delegation Rule:** Gemini is strictly commanded via system instructions and tool constraints never to calculate demand forecast, lead-time demand, net shortfall, pack rounding, or cost arithmetic directly. All arithmetic is calculated deterministically by the Phase 3 engine.
+- **Human Approval Authority:** Gemini cannot approve requests or submit purchase orders to suppliers. Requests are created in `pending_approval` status, requiring human approval before submission can proceed.
+- **Prompt Injection Defense:** Source strings from adapters or tool arguments are sanitized via `sanitize_source_string()` and stored as inert text, preventing embedded malicious directives from hijacking agent execution.
+- **Deterministic Offline / Zero-Quota Fallback:** If `GEMINI_API_KEY` is missing or empty, or if the Gemini API returns HTTP 429 (rate limits/quota exhaustion), 500 errors, or network timeouts, the orchestrator automatically runs `run_deterministic_pipeline()` without crashing or inventing data.
+- **Bounded Loop Guard:** Tool calling is strictly capped at `max_turns=5` to prevent infinite tool loops and uncontrolled quota consumption.
+- **Zero Live Quota Test Suite:** Automated test suite executes entirely offline using mocked HTTP transports (`httpx.MockTransport`) and synthetic adapters.
+
+### Test Results
+- **Test File:** [`tests/backend/test_agent_orchestrator.py`](file:///c:/Users/SHARIEF%20PARAVEZ/OneDrive/Desktop/Invertory%20Reorder%20Planner/tests/backend/test_agent_orchestrator.py)
+- **Suite Results:** 81 passed in 0.40s (13 new Phase 6 unit tests + 68 prior tests)
+- **Test Coverage:**
+  - Complete tool declarations and JSON schema compliance
+  - Core safety rules in system instructions
+  - Tool execution for source retrieval, deterministic calculation, request preparation, and verification
+  - Graceful handling of unknown tool calls
+  - Deterministic fallback when `GEMINI_API_KEY` is empty
+  - Deterministic fallback pack rounding for case-only suppliers (TC2)
+  - Simulated multi-turn Gemini conversation with function calls and final summary
+  - Graceful fallback on Gemini HTTP 429 rate limit / quota exhaustion
+  - Graceful fallback on network connection timeouts
+  - Bounded turns limit halting infinite loops after max turns
+  - Prompt injection sanitization in tool arguments
+
+---
+
 ## Known Issues
 _None at this stage._
 
 ## Next Approved Phase
-_Phase 6 — Gemini Tool Use & Agent Orchestration (awaiting explicit user approval)._
+_Phase 7 — React Frontend & User Experience (awaiting explicit user approval)._

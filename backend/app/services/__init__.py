@@ -1,6 +1,13 @@
 """
 Services module for Inventory Reorder Planner.
 """
+from backend.app.services.agent_orchestrator import (
+    DEFAULT_GEMINI_MODEL,
+    GEMINI_TOOL_DECLARATIONS,
+    AgentOrchestrationResult,
+    AgentToolCall,
+    GeminiOrchestrator,
+)
 from backend.app.services.calculation_engine import (
     CALCULATION_ENGINE_VERSION,
     PRICE_INCREASE_THRESHOLD_PCT,
@@ -55,4 +62,9 @@ __all__ = [
     "sanitize_source_string",
     "RequestService",
     "generate_idempotency_key",
+    "GeminiOrchestrator",
+    "AgentOrchestrationResult",
+    "AgentToolCall",
+    "GEMINI_TOOL_DECLARATIONS",
+    "DEFAULT_GEMINI_MODEL",
 ]
