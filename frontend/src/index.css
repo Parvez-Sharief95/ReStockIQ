@@ -1,0 +1,117 @@
+/* ── Design tokens ────────────────────────────────────────────────────────── */
+:root {
+  /* Brand palette — exact specification */
+  --color-ice-silver: #dde3e8;
+  --color-deep-aubergine: #3a0f34;
+  --color-marigold: #eaaa00;
+
+  /* Derived tokens */
+  --color-bg: var(--color-ice-silver);
+  --color-surface: #f0f3f6;
+  --color-surface-elevated: #ffffff;
+  --color-primary: var(--color-deep-aubergine);
+  --color-accent: var(--color-marigold);
+  --color-text-primary: var(--color-deep-aubergine);
+  --color-text-secondary: #5c3d58;
+  --color-text-muted: #8a7088;
+  --color-border: #c9d0d8;
+  --color-error: #c0392b;
+  --color-success: #1a7a4a;
+  --color-warning: var(--color-marigold);
+
+  /* Typography */
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.25rem;
+  --font-size-2xl: 1.5rem;
+  --font-size-3xl: 1.875rem;
+
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+
+  /* Layout */
+  --sidebar-width: 240px;
+  --header-height: 60px;
+  --border-radius-sm: 4px;
+  --border-radius: 8px;
+  --border-radius-lg: 12px;
+  --shadow-sm: 0 1px 3px rgba(58, 15, 52, 0.08);
+  --shadow-md: 0 4px 12px rgba(58, 15, 52, 0.1);
+  --shadow-lg: 0 8px 24px rgba(58, 15, 52, 0.12);
+  --transition: 150ms ease;
+}
+
+/* ── Reset ───────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  color: var(--color-text-primary);
+  background: var(--color-bg);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root { height: 100%; }
+
+/* ── Typography ──────────────────────────────────────────────────────────── */
+h1, h2, h3, h4, h5, h6 {
+  margin: 0 0 var(--space-4);
+  font-weight: 600;
+  color: var(--color-primary);
+  line-height: 1.3;
+}
+
+h1 { font-size: var(--font-size-3xl); }
+h2 { font-size: var(--font-size-2xl); }
+h3 { font-size: var(--font-size-xl); }
+
+p { margin: 0 0 var(--space-4); }
+a { color: var(--color-primary); text-decoration: underline; }
+a:hover { color: var(--color-text-secondary); }
+
+/* ── Utility classes ─────────────────────────────────────────────────────── */
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0,0,0,0); white-space: nowrap; border-width: 0;
+}
+
+.text-muted { color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.text-success { color: var(--color-success); }
+.text-error { color: var(--color-error); }
+.text-warning { color: var(--color-warning); }
+
+/* ── Placeholder app shell ───────────────────────────────────────────────── */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--color-bg);
+}
+
+.page-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: var(--space-8);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-lg);
+}
