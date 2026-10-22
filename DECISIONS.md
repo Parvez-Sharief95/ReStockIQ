@@ -35,6 +35,11 @@
 | A18 | **Staleness & Conflict Detection:** Data timestamps older than 7 days trigger `RetrievalStatus.STALE`. Duplicate open PO references with mismatched quantities or arrival dates trigger `RetrievalStatus.CONFLICT`. | Phase 4 |
 | A19 | **Failure Safety / Anti-Invention Guard:** If open orders or inventory retrieval fails, the system never defaults to zero stock or zero incoming orders (`open_orders_data = None`). Failures mark the retrieval context invalid, forcing `insufficient_data` or `needs_review` downstream to prevent catastrophic over-ordering. | Phase 4 |
 | A20 | **Prompt Injection Resilience:** Untrusted source text (product descriptions, supplier notes) is sanitized and stored strictly as literal data in `raw_data`; instructions inside source fields are never executed. | Phase 4 |
+| A21 | **Request Service & Version Immutability:** Implemented in `backend/app/services/request_service.py`. Enforces immutable versioning (`RequestVersion`), stable SHA-256 idempotency keys, and strict human approval gating. | Phase 5 |
+| A22 | **Approval Invalidation (Rule S2):** Any proposal modification after approval invalidates that approval, creates a new version, resets status to `pending_approval`, and records an audit event. Submitting without re-approval is blocked. | Phase 5 |
+| A23 | **Simulated Submission Safe Mode:** Defaults to simulated execution (`SIM-PO-...`). Submission requires status `approved` and active approval on the exact current version. Live supplier order endpoints are never contacted. | Phase 5 |
+| A24 | **Independent Outcome Verification:** Separate verification stage tests actual vs intended SKU, quantity, pack size divisibility, and duplicate PO references. Any failure marks request and verification as `failed`. | Phase 5 |
+| A25 | **Append-Only Audit Trail:** Chronological immutable audit logging captures `proposed`, `approved`, `rejected`, `submitted`, `retry`, `version_invalidated`, `verified`, and `failed` events. | Phase 5 |
 
 ## Env Variable Naming (Phase 2 decision)
 

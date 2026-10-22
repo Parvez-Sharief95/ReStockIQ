@@ -1,6 +1,6 @@
 # BUILD_STATUS.md — Inventory Reorder Planner
 
-## Current Phase: PHASE 4 COMPLETE — Awaiting approval for Phase 5
+## Current Phase: PHASE 5 COMPLETE — Awaiting approval for Phase 6
 
 ---
 
@@ -13,7 +13,7 @@
 | 2 | Supabase Schema, Auth & Access Control | ✅ Complete + reviewed | See Phase 2 report + review fixes |
 | 3 | Deterministic Inventory Decision Engine | ✅ Complete | See Phase 3 report (42 unit tests passed) |
 | 4 | Source Retrieval & Evidence | ✅ Complete | See Phase 4 report (54 unit tests passed) |
-| 5 | Reorder Requests, Approval, Idempotency & Verification | ⏳ Not started | — |
+| 5 | Reorder Requests, Approval, Idempotency & Verification | ✅ Complete | See Phase 5 report (68 unit tests passed) |
 | 6 | Gemini Tool Use & Agent Orchestration | ⏳ Not started | — |
 | 7 | React Frontend & User Experience | ⏳ Not started | — |
 | 8 | API Integration & TC1–TC4 Acceptance Tests | ⏳ Not started | — |
@@ -230,8 +230,43 @@ Stable `idempotency_key` field on `ReorderRequest`; DB uniqueness constraint pla
 
 ---
 
+## Phase 5 Report
+
+### Implementation
+- **Module:** [`backend/app/services/request_service.py`](file:///c:/Users/SHARIEF%20PARAVEZ/OneDrive/Desktop/Invertory%20Reorder%20Planner/backend/app/services/request_service.py)
+- **Service Class:** `RequestService` managing in-memory entity stores and lifecycle transitions.
+- **Idempotency:** Stable key generation via [`generate_idempotency_key()`](file:///c:/Users/SHARIEF%20PARAVEZ/OneDrive/Desktop/Invertory%20Reorder%20Planner/backend/app/services/request_service.py#L38) using SHA-256 hash of `user_id:sku:analysis_id:version`. Duplicate submissions return the existing active request without duplication and log `AuditEventType.RETRY`.
+
+### Safety & Lifecycle Rules Implemented
+- **Immutable Request Versioning:** Every proposal writes a `RequestVersionRead` with full input snapshot. Proposal updates create incrementing versions.
+- **Mandatory Human Approval Gating:** Submissions without prior human approval are strictly blocked (`PermissionError`). Approvals are explicitly tied to the exact active version ID.
+- **Approval Invalidation (Rule S2):** Any change to quantity, price, supplier, or pack size after approval invalidates that approval, forces status back to `pending_approval`, and writes an audit event.
+- **Simulated Execution Default:** Submissions default to simulated mode, emitting mock references (`SIM-PO-...`). Real supplier procurement endpoints are never invoked.
+- **Visible Failure States:** If simulated submission fails, request transitions to `failed` and records the error reason; failures are never masked as success.
+- **Separate Independent Verification:** Post-submission verification separately checks SKU match, quantity match, pack size divisibility, and open PO duplicate detection. Any mismatch transitions request to `failed` with granular evidence explanations.
+- **Append-Only Audit Trail:** Chronological immutable audit logging tracks `proposed`, `approved`, `rejected`, `submitted`, `retry`, `version_invalidated`, `verified`, and `failed`.
+
+### Test Results
+- **Test File:** [`tests/backend/test_request_service.py`](file:///c:/Users/SHARIEF%20PARAVEZ/OneDrive/Desktop/Invertory%20Reorder%20Planner/tests/backend/test_request_service.py)
+- **Suite Results:** 68 passed in 0.36s (14 new Phase 5 unit tests + 54 prior tests)
+- **Test Coverage:**
+  - Request creation and initial version snapshotting
+  - Idempotent duplicate retries returning existing requests and logging `RETRY`
+  - Approval gating blocking unapproved submissions
+  - Human approval recording approver ID, timestamp, and version ID
+  - Proposal modification invalidating approval and blocking submission until re-approved
+  - Obsolete version approval attempts rejected with version mismatch error
+  - Rejection status transitions and submission blocking
+  - Simulated submission success with mock reference generation
+  - Submission failure visibility and audit logging
+  - Independent outcome verification with matching SKU, quantity, pack size, and no duplicates
+  - Independent verification mismatch detection (SKU mismatch, quantity mismatch, pack size violation, duplicate PO detection)
+  - Chronological audit logging sequence across lifecycle events
+
+---
+
 ## Known Issues
 _None at this stage._
 
 ## Next Approved Phase
-_Phase 5 — Reorder Requests, Approval, Idempotency & Verification (awaiting explicit user approval)._
+_Phase 6 — Gemini Tool Use & Agent Orchestration (awaiting explicit user approval)._

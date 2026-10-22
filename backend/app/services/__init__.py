@@ -17,6 +17,10 @@ from backend.app.services.calculation_engine import (
     validate_evidence_ids,
     validate_inputs,
 )
+from backend.app.services.request_service import (
+    RequestService,
+    generate_idempotency_key,
+)
 from backend.app.services.source_adapter import (
     BaseSourceAdapter,
     MockSourceAdapter,
@@ -49,4 +53,6 @@ __all__ = [
     "SourceRetrievalResult",
     "retrieve_reorder_context",
     "sanitize_source_string",
+    "RequestService",
+    "generate_idempotency_key",
 ]
