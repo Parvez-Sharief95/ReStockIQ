@@ -1,13 +1,18 @@
 """
-Shared pytest fixtures — expanded in Phase 3.
-Provides deterministic test data matching TC1–TC4 synthetic scenarios.
+Shared pytest fixtures — Phase 8.
+Provides deterministic test data matching TC1–TC4 synthetic scenarios,
+plus FastAPI TestClient fixture for integration testing.
 """
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
+from fastapi.testclient import TestClient
 import pytest
+
+from backend.app.main import app
+from backend.app.services.backend_store import get_backend_store
 
 
 @pytest.fixture
@@ -59,3 +64,12 @@ def base_sales_history() -> dict[str, Any]:
         "total_units_sold": Decimal("120"),
         "days_in_period": 30,  # 120 / 30 = 4.0 units/day
     }
+
+
+@pytest.fixture
+def api_client() -> TestClient:
+    """FastAPI TestClient with fresh store state."""
+    store = get_backend_store()
+    store.reset()
+    client = TestClient(app)
+    return client

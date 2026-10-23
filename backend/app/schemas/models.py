@@ -81,6 +81,7 @@ class AuditEventType(str, Enum):
 
 
 class TestCaseId(str, Enum):
+    __test__ = False
     TC1 = "TC1"
     TC2 = "TC2"
     TC3 = "TC3"
@@ -88,6 +89,7 @@ class TestCaseId(str, Enum):
 
 
 class TestStatus(str, Enum):
+    __test__ = False
     PASS = "pass"
     FAIL = "fail"
     PENDING = "pending"

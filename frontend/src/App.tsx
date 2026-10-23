@@ -1,40 +1,38 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Header } from './components/Header';
+import { SyntheticBanner } from './components/SyntheticBanner';
+import { DashboardPage } from './pages/DashboardPage';
+import { InventoryPage } from './pages/InventoryPage';
+import { AnalysisView } from './pages/AnalysisView';
+import { ApprovalsQueuePage } from './pages/ApprovalsQueuePage';
+import { RequestDetailPage } from './pages/RequestDetailPage';
+import { ScenarioRunnerPage } from './pages/ScenarioRunnerPage';
+import { AuthPage } from './pages/AuthPage';
 
-/**
- * App root — routes are stubbed here and implemented in Phase 7.
- * Each route corresponds to a main screen from the playbook.
- */
-function App() {
+export const App: React.FC = () => {
   return (
     <BrowserRouter>
       <div className="app-shell">
-        <Routes>
-          {/* Screen 1: Auth */}
-          <Route path="/auth" element={<Placeholder label="Sign In / Sign Up" />} />
-          {/* Screen 2: Dashboard */}
-          <Route path="/" element={<Placeholder label="Dashboard — Stockout Risks & Pending Approvals" />} />
-          {/* Screen 3: Inventory */}
-          <Route path="/inventory" element={<Placeholder label="Inventory — SKUs, Stock, Suppliers" />} />
-          {/* Screen 4: Reorder Analysis */}
-          <Route path="/analysis/:id" element={<Placeholder label="Reorder Analysis — Forecast & Evidence" />} />
-          {/* Screen 5: Approval Queue */}
-          <Route path="/approvals" element={<Placeholder label="Approval Queue" />} />
-          {/* Screen 6: Request Detail / History */}
-          <Route path="/requests/:id" element={<Placeholder label="Request Detail & Audit History" />} />
-          {/* Screen 7: TC1–TC4 Test Scenarios */}
-          <Route path="/test-scenarios" element={<Placeholder label="Test Scenarios — TC1 to TC4" />} />
-        </Routes>
+        <Header />
+        <SyntheticBanner />
+        <main className="main-viewport" role="main">
+          <Routes>
+            <Route path="/" element={<DashboardPage />} />
+            <Route path="/inventory" element={<InventoryPage />} />
+            <Route path="/analysis/:sku" element={<AnalysisView />} />
+            <Route path="/analysis" element={<Navigate to="/inventory" replace />} />
+            <Route path="/approvals" element={<ApprovalsQueuePage />} />
+            <Route path="/requests" element={<ApprovalsQueuePage />} />
+            <Route path="/requests/:id" element={<RequestDetailPage />} />
+            <Route path="/test-scenarios" element={<ScenarioRunnerPage />} />
+            <Route path="/auth" element={<AuthPage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </main>
       </div>
     </BrowserRouter>
   );
-}
-
-function Placeholder({ label }: { label: string }) {
-  return (
-    <div className="page-placeholder">
-      <span>🏗 <strong>{label}</strong> — implemented in Phase 7</span>
-    </div>
-  );
-}
+};
 
 export default App;

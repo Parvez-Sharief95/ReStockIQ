@@ -1,6 +1,6 @@
 # BUILD_STATUS.md — Inventory Reorder Planner
 
-## Current Phase: PHASE 6 COMPLETE — Awaiting approval for Phase 7
+## Current Phase: PHASE 8 COMPLETE — Awaiting approval for Phase 9
 
 ---
 
@@ -15,8 +15,8 @@
 | 4 | Source Retrieval & Evidence | ✅ Complete | See Phase 4 report (54 unit tests passed) |
 | 5 | Reorder Requests, Approval, Idempotency & Verification | ✅ Complete | See Phase 5 report (68 unit tests passed) |
 | 6 | Gemini Tool Use & Agent Orchestration | ✅ Complete | See Phase 6 report (81 unit tests passed) |
-| 7 | React Frontend & User Experience | ⏳ Not started | — |
-| 8 | API Integration & TC1–TC4 Acceptance Tests | ⏳ Not started | — |
+| 7 | React Frontend & User Experience | ✅ Complete | See Phase 7 report (9 Vitest tests passed; bundle built) |
+| 8 | API Integration & TC1–TC4 Acceptance Tests | ✅ Complete | See Phase 8 report (104 pytest + 15 Vitest passed) |
 | 9 | Vercel & Free-Tier Deployment Review | ⏳ Not started | — |
 | 10 | Documentation, Demo & Final Audit | ⏳ Not started | — |
 
@@ -303,8 +303,120 @@ Stable `idempotency_key` field on `ReorderRequest`; DB uniqueness constraint pla
 
 ---
 
+## Phase 7 Report
+
+### Implementation
+- **Visual Design System:** "Editorial Supply-Chain Precision" implemented in [`frontend/src/index.css`](file:///c:/Users/SHARIEF%20PARAVEZ/OneDrive/Desktop/Invertory%20Reorder%20Planner/frontend/src/index.css).
+  - Palette: Deep Aubergine (`#3A0F34`), Ice Silver (`#DDE3E8`), Marigold (`#EAAA00`), Lifted Silver (`#EEF2F5`), Deepest Aubergine (`#250821`), Elevated Plum (`#471440`).
+  - Typography: Plus Jakarta Sans for headings and navigation; JetBrains Mono for SKUs, order references, quantities, and financial numbers.
+- **Client Data Service:** [`frontend/src/services/dataService.ts`](file:///c:/Users/SHARIEF%20PARAVEZ/OneDrive/Desktop/Invertory%20Reorder%20Planner/frontend/src/services/dataService.ts) providing typed client state initialized with TC1–TC4 seed data, pure C1–C10 reorder arithmetic, SHA-256 idempotency protection, Rule S2 approval invalidation, simulated order execution (`SIM-PO-...`), and independent outcome verification.
+- **Components Built:**
+  - `Header.tsx`: Navigation bar with brand badge, active indicators, pending approvals counter, and persona switcher.
+  - `SyntheticBanner.tsx`: Top notification clarifying synthetic data mode and isolation from live procurement endpoints.
+  - `GuardrailsCard.tsx`: Operational governance cards detailing Zero LLM Arithmetic, Mandatory Human Approval, Rule S2, and Outcome Verification.
+  - `DepletionChart.tsx`: Accessible 30-day SVG stock depletion curve charting stock trajectory against lead-time ordering horizons.
+  - `AuditTrailList.tsx`: Chronological immutable audit timeline with actor IDs, version numbers, and payload changes.
+- **Views & User Flows Built:**
+  1. `DashboardPage.tsx`: Operational command center with stockout risk metrics, depletion curve, and reorder status snapshot.
+  2. `InventoryPage.tsx`: Searchable SKU catalog with urgency filters, case packaging badges, and quick evaluate actions.
+  3. `AnalysisView.tsx`: Step-by-step mathematical walkthrough of demand forecast, shortfall, pack rounding, budget review, evidence provenance, and draft request creation.
+  4. `ApprovalsQueuePage.tsx`: Review queue with human approve/reject dialogs and Rule S2 proposal modification.
+  5. `RequestDetailPage.tsx`: Deep dive with lifecycle stepper, version snapshots, simulated order submission, independent outcome verification comparator, and audit history.
+  6. `ScenarioRunnerPage.tsx`: Interactive test harness for TC1, TC2, TC3, and TC4 with live execution and expected vs actual diffs.
+  7. `AuthPage.tsx`: Persona switcher between Inventory Planner (`Sarah Connor`) and Purchasing Approver (`Marcus Vance`).
+
+### Test Results
+- **Frontend Vitest Suite:** 9 passed in 7ms (`frontend/src/__tests__/dataService.test.ts`)
+  - TC1: standard reorder shortfall calculation
+  - TC2: pack-size rounding to case multiples
+  - TC3: eligible incoming purchase order coverage
+  - TC4: 20% price increase and budget overrun detection
+  - Idempotent duplicate retry handling
+  - Submission blocked without human approval
+  - Rule S2 approval invalidation when proposal changes
+  - Independent outcome verification match and mismatch detection
+  - TC1–TC4 test scenario runner execution
+- **Frontend Production Bundle:** `tsc && vite build` built cleanly in 1.08s (zero TypeScript or bundle errors).
+- **Backend Test Suite:** All 81 prior Python tests pass cleanly in 0.44s without regression.
+
+### Mock-Only Features & Phase 8 Integration Gap (Resolved)
+- In Phase 7, the UI operated against client-side `dataService.ts`.
+- In Phase 8, all router endpoints in `backend/app/routers/*.py` were implemented, connected to `BackendStore`, validated with typed Pydantic schemas, and bound to `apiClient.ts` in the frontend.
+
+---
+
+## Phase 8 Report
+
+### Implementation Summary
+- **Backend Endpoints Implemented:**
+  - `health.py`: `GET /api/health`
+  - `dashboard.py`: `GET /api/dashboard` (operational metrics: stockout risks, pending approvals, active orders)
+  - `inventory.py`: `GET /api/inventory` (catalog with supplier terms & stock), `GET /api/inventory/{sku}`
+  - `analyses.py`: `POST /api/analyses/evaluate` (deterministic engine evaluation), `GET /api/analyses`, `GET /api/analyses/{id}`
+  - `requests.py`: `POST /api/requests` (idempotent request creation), `GET /api/requests`, `GET /api/requests/{id}`, `GET /api/requests/{id}/versions`, `GET /api/requests/{id}/audit`, `PATCH /api/requests/{id}/proposal` (Rule S2 version invalidation), `POST /api/requests/{id}/submit` (simulated order submission), `POST /api/requests/{id}/verify` (independent outcome verification), `GET /api/requests/{id}/verification`
+  - `approvals.py`: `POST /api/approvals` (records approval/rejection on exact version), `GET /api/approvals/{id}`
+  - `test_runs.py`: `POST /api/test-runs/run/{case_id}` (TC1–TC4 acceptance runner), `POST /api/test-runs/run-all`, `GET /api/test-runs`
+- **Backend Store & Service Bridge:** [`backend/app/services/backend_store.py`](file:///c:/Users/SHARIEF%20PARAVEZ/OneDrive/Desktop/Invertory%20Reorder%20Planner/backend/app/services/backend_store.py) coordinating in-memory repositories for products, supplier terms, open orders, analyses, requests, versions, approvals, audit events, verifications, and test runs.
+- **Frontend API Client:** [`frontend/src/services/apiClient.ts`](file:///c:/Users/SHARIEF%20PARAVEZ/OneDrive/Desktop/Invertory%20Reorder%20Planner/frontend/src/services/apiClient.ts) providing typed async methods, structured `ApiError` handling, and visible mock source tagging.
+- **Frontend UI Wiring:** `ScenarioRunnerPage.tsx` and `dataService.ts` wired to live FastAPI endpoints with deterministic client fallback when offline.
+
+### Acceptance Test Results (TC1–TC4 & Partial Open Order)
+All scenarios verified end-to-end from source retrieval through analysis, request preparation, approval, simulated submission, and independent verification:
+- **TC1 (Low stock, no incoming order):** ✅ PASSED
+  - Input: SKU-001, stock=20, demand=4.0 u/d, lead time=14d.
+  - Calculation: Lead-time demand = 56, Net shortfall = 36, Pack size = 1, Proposed quantity = 36 units, Estimated cost = $360.00, Status = `ready`.
+  - Workflow: Request created (`pending_approval`, idempotency key `IDEM-TC1-FULL-FLOW`) → Approved by human → Simulated order submitted (`SIM-PO-...`) → Verified (SKU match, quantity match, pack check) → Audit trail complete.
+- **TC2 (Supplier sells in cases of 12):** ✅ PASSED
+  - Input: SKU-002, stock=25, demand=4.0 u/d, lead time=14d, pack size=12.
+  - Calculation: Lead-time demand = 56, Net shortfall = 31, Pack rounding = ceil(31/12) * 12 = 36 units (3 cases), Estimated cost = $360.00, Status = `ready`.
+  - Workflow: Request created (3 cases, 36 units) → Approved → Simulated submission → Verification passed pack size divisibility check.
+- **TC3 (Existing pending/open purchase order):** ✅ PASSED
+  - Input: SKU-003, stock=20, demand=4.0 u/d, lead time=14d. Open order PO-GAMMA-001 for 24 units arriving in 10 days (eligible).
+  - Calculation: Lead-time demand = 56, Eligible incoming = 24, Net shortfall = max(0, 56 - 20 - 24) = 12 units, Proposed quantity = 12 units.
+  - Double-Ordering Prevention: Shortfall reduced from 36 to 12. When demand is fully covered (e.g. 40 units), net shortfall is 0, proposed quantity is 0, preventing duplicate reordering.
+- **TC4 (Supplier price increases by 20%):** ✅ PASSED
+  - Input: SKU-004, stock=20, demand=4.0 u/d, lead time=14d. Supplier price = $12.00 (was $10.00; +20%). Budget available = $400.00.
+  - Calculation: Proposed quantity = 36 units, Estimated cost = 36 * $12.00 = $432.00 > $400.00. Budget status = `over_budget`, Analysis status = `needs_review`, Price hike detected = True.
+  - Approval Enforcement: Submitting without approval returns 403 Forbidden. Requires explicit human review and authorization before submission.
+- **Partial Open Order Case (Rule 5):** ✅ PASSED
+  - Input: Demand = 100 units, Stock = 20 units, Confirmed incoming order = 30 units.
+  - Result: Shortfall = 100 - 20 - 30 = 50 units (> 0). Shortages are legitimately proposed and not suppressed merely because an order exists.
+
+### Safety & Failure Handling Verified
+- **Server-Side Approval Gating:** Submissions without prior human approval return HTTP 403 Forbidden (`CONSEQUENTIAL_ACTION_BLOCKED`).
+- **Rule S2 Approval Invalidation:** Editing a proposal after approval creates a new version, forces status back to `pending_approval`, and invalidates prior approval. Submit attempts return 403 Forbidden until re-approved.
+- **Anti-Invention Guard:** Failed open orders retrieval sets `open_orders_data = None` and `is_valid = False`; never defaults to `[]` or 0 incoming orders.
+- **Evidence Integrity Guard:** Reorder requests cannot be created from analyses with `insufficient_data` or failed evidence (HTTP 400 Bad Request).
+- **Invalid Quantity Defense:** Negative, zero, or non-pack compliant quantities rejected by validation schemas.
+- **Idempotency Protection:** Retrying with existing idempotency key returns existing request with `is_duplicate: true` and logs `AuditEventType.RETRY`.
+- **Outcome Verification:** Separate verification stage detects SKU mismatch, quantity mismatch, pack size violation, and duplicate PO references, transitioning request to `failed` with granular evidence.
+- **Simulated Execution Default:** Real procurement endpoints are never contacted; mock references (`SIM-PO-...`) emitted.
+- **Secret Protection:** Source control, API responses, and frontend bundles verified free of secret keys.
+
+### Test Suite Execution
+- **Backend Pytest Suite:** 104 passed in 0.98s (`backend/.venv/Scripts/pytest`)
+  - `tests/backend/test_acceptance_scenarios.py`: 6 passed (TC1, TC2, TC3, TC4, partial open order, scenario runner endpoints)
+  - `tests/backend/test_api_integration.py`: 8 passed (all REST endpoints and error shapes)
+  - `tests/backend/test_safety_and_failures.py`: 9 passed (gating, invalidation, anti-invention, secret protection)
+  - `tests/backend/test_agent_orchestrator.py`: 13 passed
+  - `tests/backend/test_decision_engine.py`: 40 passed
+  - `tests/backend/test_request_service.py`: 14 passed
+  - `tests/backend/test_source_adapter.py`: 12 passed
+  - `tests/backend/test_scaffold.py`: 2 passed
+- **Frontend Vitest Suite:** 15 passed in 42ms (`npm test -- --run` in `frontend/`)
+  - `src/__tests__/dataService.test.ts`: 9 passed
+  - `src/__tests__/apiClient.test.ts`: 6 passed
+- **Frontend Production Bundle:** `npm run build` compiled cleanly in 1.05s (zero TypeScript or bundle errors).
+
+### Distinguishing Mocked Tests vs Live Supabase
+- All 104 backend tests and 15 frontend tests execute against deterministic synthetic adapters and in-memory mock repositories.
+- Zero live Supabase or external network dependencies are required or claimed in test runs.
+- Synthetic provenance is maintained on all records (`source_type = "mock_source"`, `is_synthetic = True`).
+
+---
+
 ## Known Issues
-_None at this stage._
+_None._
 
 ## Next Approved Phase
-_Phase 7 — React Frontend & User Experience (awaiting explicit user approval)._
+_Phase 9 — Vercel & Free-Tier Deployment Review (awaiting explicit user approval)._
