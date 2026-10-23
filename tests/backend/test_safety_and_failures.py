@@ -178,6 +178,7 @@ def test_outdated_approval_blocks_submission_backend_enforced(api_client: TestCl
     api_client.post(
         "/api/approvals",
         json={"request_id": req_id, "action": "approved", "target_version_number": 1},
+        headers={"Authorization": "Bearer demo-approver-token"},
     )
 
     # Edit proposal to create version 2
@@ -215,6 +216,7 @@ def test_submission_failure_visibility(api_client: TestClient) -> None:
     api_client.post(
         "/api/approvals",
         json={"request_id": req_id, "action": "approved", "target_version_number": 1},
+        headers={"Authorization": "Bearer demo-approver-token"},
     )
 
     # Force simulated gateway timeout
@@ -253,6 +255,7 @@ def test_verification_mismatches_handled(api_client: TestClient) -> None:
     api_client.post(
         "/api/approvals",
         json={"request_id": req_id, "action": "approved", "target_version_number": 1},
+        headers={"Authorization": "Bearer demo-approver-token"},
     )
     api_client.post(f"/api/requests/{req_id}/submit", json={})
 
@@ -285,3 +288,186 @@ def test_no_secrets_leaked_in_api_responses(api_client: TestClient) -> None:
     assert "SUPABASE_SECRET_KEY" not in text
     assert "GEMINI_API_KEY" not in text
     assert "service_role" not in text
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Authentication & Role Authorization Enforcement Tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_approval_missing_auth_rejected_401(api_client: TestClient) -> None:
+    """POST /api/approvals without Authorization header returns 401 Unauthorized."""
+    resp = api_client.post(
+        "/api/approvals",
+        json={
+            "request_id": "00000000-0000-0000-0000-000000000001",
+            "action": "approved",
+            "target_version_number": 1,
+        },
+    )
+    assert resp.status_code == 401
+    assert "Authentication required" in resp.json()["message"]
+
+
+def test_approval_invalid_token_rejected_401(api_client: TestClient) -> None:
+    """POST /api/approvals with invalid/expired token returns 401 Unauthorized."""
+    resp = api_client.post(
+        "/api/approvals",
+        json={
+            "request_id": "00000000-0000-0000-0000-000000000001",
+            "action": "approved",
+            "target_version_number": 1,
+        },
+        headers={"Authorization": "Bearer bogus-token-xyz"},
+    )
+    assert resp.status_code == 401
+    assert "Invalid or expired" in resp.json()["message"]
+
+
+def test_approval_planner_role_forbidden_403(api_client: TestClient) -> None:
+    """POST /api/approvals by user with 'planner' role is rejected with 403 Forbidden."""
+    eval_resp = api_client.post("/api/analyses/evaluate", json={"sku": "SKU-001"})
+    analysis_id = eval_resp.json()["analysis"]["id"]
+
+    req_resp = api_client.post(
+        "/api/requests",
+        json={
+            "analysis_id": analysis_id,
+            "sku": "SKU-001",
+            "product_id": "10000000-0000-0000-0000-000000000001",
+            "supplier_name": "Acme Supplies",
+            "proposed_quantity": 36,
+            "pack_count": 36,
+            "pack_size": 1,
+            "estimated_cost": 360.0,
+        },
+    )
+    req_id = req_resp.json()["request"]["id"]
+
+    # Sarah Connor has role="planner", NOT "approver"
+    resp = api_client.post(
+        "/api/approvals",
+        json={
+            "request_id": req_id,
+            "action": "approved",
+            "target_version_number": 1,
+        },
+        headers={"Authorization": "Bearer demo-planner-token"},
+    )
+    assert resp.status_code == 403
+    assert "Operation requires one of roles" in resp.json()["message"]
+    assert "planner" in resp.json()["message"]
+
+
+def test_approval_approver_role_succeeds_and_binds_identity_200(api_client: TestClient) -> None:
+    """POST /api/approvals by user with 'approver' role succeeds and records authenticated UUID."""
+    eval_resp = api_client.post("/api/analyses/evaluate", json={"sku": "SKU-001"})
+    analysis_id = eval_resp.json()["analysis"]["id"]
+
+    req_resp = api_client.post(
+        "/api/requests",
+        json={
+            "analysis_id": analysis_id,
+            "sku": "SKU-001",
+            "product_id": "10000000-0000-0000-0000-000000000001",
+            "supplier_name": "Acme Supplies",
+            "proposed_quantity": 36,
+            "pack_count": 36,
+            "pack_size": 1,
+            "estimated_cost": 360.0,
+        },
+    )
+    req_id = req_resp.json()["request"]["id"]
+
+    # Marcus Vance has role="approver"
+    resp = api_client.post(
+        "/api/approvals",
+        json={
+            "request_id": req_id,
+            "action": "approved",
+            "target_version_number": 1,
+            "notes": "Reviewed and approved by Marcus Vance",
+        },
+        headers={"Authorization": "Bearer demo-approver-token"},
+    )
+    assert resp.status_code == 200
+    appr_data = resp.json()["approval"]
+    assert appr_data["action"] == "approved"
+    # Authenticated UUID for demo approver MUST be bound to record:
+    assert appr_data["approver_id"] == "00000000-0000-0000-0000-000000000002"
+
+
+def test_approval_caller_supplied_approver_id_rejected_422(api_client: TestClient) -> None:
+    """POST /api/approvals with caller-supplied approver_id is rejected with 422 Unprocessable Entity."""
+    eval_resp = api_client.post("/api/analyses/evaluate", json={"sku": "SKU-001"})
+    analysis_id = eval_resp.json()["analysis"]["id"]
+
+    req_resp = api_client.post(
+        "/api/requests",
+        json={
+            "analysis_id": analysis_id,
+            "sku": "SKU-001",
+            "product_id": "10000000-0000-0000-0000-000000000001",
+            "supplier_name": "Acme Supplies",
+            "proposed_quantity": 36,
+            "pack_count": 36,
+            "pack_size": 1,
+            "estimated_cost": 360.0,
+        },
+    )
+    req_id = req_resp.json()["request"]["id"]
+
+    # An attacker attempts to inject a spoofed approver_id into the JSON body
+    spoof_resp = api_client.post(
+        "/api/approvals",
+        json={
+            "request_id": req_id,
+            "action": "approved",
+            "target_version_number": 1,
+            "approver_id": "00000000-0000-0000-0000-000000000999",  # Spoofed caller ID!
+        },
+        headers={"Authorization": "Bearer demo-approver-token"},
+    )
+    # Extra field forbidden by schema:
+    assert spoof_resp.status_code == 422
+    err_body = spoof_resp.json()
+    assert "approver_id" in str(err_body)
+
+
+def test_demo_tokens_disabled_in_production_environment(api_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """In production mode, offline demo tokens cannot authorize approvals or consequential actions."""
+    eval_resp = api_client.post("/api/analyses/evaluate", json={"sku": "SKU-001"})
+    analysis_id = eval_resp.json()["analysis"]["id"]
+
+    req_resp = api_client.post(
+        "/api/requests",
+        json={
+            "analysis_id": analysis_id,
+            "sku": "SKU-001",
+            "product_id": "10000000-0000-0000-0000-000000000001",
+            "supplier_name": "Acme Supplies",
+            "proposed_quantity": 36,
+            "pack_count": 36,
+            "pack_size": 1,
+            "estimated_cost": 360.0,
+        },
+    )
+    req_id = req_resp.json()["request"]["id"]
+
+    import backend.app.services.auth as auth_mod
+    monkeypatch.setattr(auth_mod.settings, "app_env", "production")
+
+    # In production, demo-approver-token must be rejected with 401
+    resp = api_client.post(
+        "/api/approvals",
+        json={
+            "request_id": req_id,
+            "action": "approved",
+            "target_version_number": 1,
+        },
+        headers={"Authorization": "Bearer demo-approver-token"},
+    )
+    assert resp.status_code == 401
+    assert "disabled in production mode" in resp.json()["message"]
+
+
+

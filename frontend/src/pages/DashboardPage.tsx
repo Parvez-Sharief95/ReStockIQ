@@ -1,13 +1,30 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { dataService } from '../services/dataService';
 import { GuardrailsCard } from '../components/GuardrailsCard';
 import { DepletionChart } from '../components/DepletionChart';
 
 export const DashboardPage: React.FC = () => {
+  const [selectedSku, setSelectedSku] = useState<string>('SKU-001');
+  const [syncStatus, setSyncStatus] = useState<'loading' | 'live' | 'offline' | 'error'>('loading');
+  const [syncError, setSyncError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSyncStatus('loading');
+    dataService.syncWithBackend().then((ok) => {
+      if (cancelled) return;
+      setSyncStatus(ok ? 'live' : 'offline');
+    }).catch((err: unknown) => {
+      if (cancelled) return;
+      setSyncError(err instanceof Error ? err.message : 'Sync failed');
+      setSyncStatus('error');
+    });
+    return () => { cancelled = true; };
+  }, []);
+
   const products = dataService.getProducts();
   const requests = dataService.getRequests();
-  const [selectedSku, setSelectedSku] = useState<string>('SKU-001');
 
   // Compute metrics
   const activeSkus = products.length;
@@ -25,17 +42,30 @@ export const DashboardPage: React.FC = () => {
     <div className="fade-in">
       <div className="editorial-header">
         <div className="editorial-header-text">
-          <h1>Procurement &amp; Inventory Operations</h1>
+          <h1>ReStockIQ Operations Command</h1>
           <p>
             Autonomous inventory depletion monitoring, deterministic lead-time reordering, and human-governed approval queues.
           </p>
+          {/* Backend sync status chip */}
+          {syncStatus === 'loading' && (
+            <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>Syncing with backend…</span>
+          )}
+          {syncStatus === 'offline' && (
+            <span style={{ fontSize: '0.78rem', color: 'var(--color-warning)', fontWeight: 700 }}>Offline Mode — Local Seed Data</span>
+          )}
+          {syncStatus === 'error' && (
+            <span style={{ fontSize: '0.78rem', color: 'var(--color-danger)', fontWeight: 700 }}>Backend Error: {syncError}</span>
+          )}
+          {syncStatus === 'live' && (
+            <span style={{ fontSize: '0.78rem', color: 'var(--color-success)', fontWeight: 700 }}>Live Data Connected</span>
+          )}
         </div>
         <div style={{ display: 'flex', gap: '0.75rem' }}>
           <Link to="/inventory" className="btn btn-outline">
-            <span>📦</span> View All SKUs
+            View All SKUs
           </Link>
           <Link to="/approvals" className="btn btn-accent">
-            <span>⚖️</span> Review Queue ({pendingApprovals})
+            Review Queue ({pendingApprovals})
           </Link>
         </div>
       </div>
@@ -77,9 +107,7 @@ export const DashboardPage: React.FC = () => {
       {/* Stockout Forecast & 30-Day Depletion Trend */}
       <div className="card-editorial" style={{ marginBottom: '1.75rem' }}>
         <div className="card-header-editorial">
-          <h3>
-            <span>📉</span> Stockout Risk Forecast &amp; Depletion Trajectory
-          </h3>
+          <h3>Stockout Risk Forecast &amp; Depletion Trajectory</h3>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             {products.map((p) => (
               <button
@@ -116,9 +144,7 @@ export const DashboardPage: React.FC = () => {
       {/* Active SKUs Quick Reorder Evaluation Table */}
       <div className="card-editorial">
         <div className="card-header-editorial">
-          <h3>
-            <span>📋</span> Deterministic Reorder Status Snapshot
-          </h3>
+          <h3>Deterministic Reorder Status Snapshot</h3>
           <Link to="/inventory" className="btn btn-sm btn-outline">
             Full Inventory Table &rarr;
           </Link>

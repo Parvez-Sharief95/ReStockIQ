@@ -7,6 +7,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
+from uuid import UUID
 import uuid
 
 from fastapi import APIRouter, HTTPException, status
@@ -19,12 +20,13 @@ from backend.app.schemas.models import (
     TestRunRead,
     TestStatus,
 )
+from fastapi import Depends
 from backend.app.services.agent_orchestrator import make_json_safe
-from backend.app.services.backend_store import get_backend_store
 from backend.app.services.calculation_engine import (
     CALCULATION_ENGINE_VERSION,
     evaluate_reorder,
 )
+from backend.app.services.repository import RepositoryManager, get_repository_manager
 from backend.app.services.source_adapter import (
     retrieve_reorder_context,
 )
@@ -32,9 +34,10 @@ from backend.app.services.source_adapter import (
 router = APIRouter()
 
 
-def execute_scenario(case_id: str) -> TestRunRead:
+def execute_scenario(case_id: str, repo: RepositoryManager | None = None) -> TestRunRead:
     """Execute official test case through the end-to-end backend workflow."""
-    store = get_backend_store()
+    if repo is None:
+        repo = get_repository_manager(None)
     c_id = case_id.strip().upper()
     now = datetime.now(timezone.utc)
     today = date.today()
@@ -64,7 +67,7 @@ def execute_scenario(case_id: str) -> TestRunRead:
     }
 
     # 1. Source retrieval with provenance
-    ctx = retrieve_reorder_context(sku=sku, adapter=store.adapter)
+    ctx = retrieve_reorder_context(sku=sku, adapter=repo.adapter)
     if not ctx.is_valid:
         raise RuntimeError(f"Source context retrieval failed for {sku}: {'; '.join(ctx.issues)}")
 
@@ -77,7 +80,7 @@ def execute_scenario(case_id: str) -> TestRunRead:
         budget_available=budget_map[c_id],
         baseline_unit_price=base_price_map[c_id],
         source_evidence_ids=ctx.evidence_ids,
-        known_source_evidence_ids=set(store.adapter.evidence_store.keys()),
+        known_source_evidence_ids=set(repo.adapter.evidence_store.keys()),
         as_of_date=today,
         snapshot_at=now,
     )
@@ -153,35 +156,35 @@ def execute_scenario(case_id: str) -> TestRunRead:
             and actual_result["estimated_cost"] == 360.0
         ):
             # Test full workflow: request -> approval -> simulated submission -> verification
-            req, ver, _ = store.request_service.create_reorder_request(
+            req, ver, _ = repo.requests.create_request(
                 user_id="00000000-0000-0000-0000-000000000001",
                 analysis_id=str(uuid.uuid4()),
                 product_id=str(analysis.product_id),
                 sku=sku,
                 supplier_name="Acme Supplies",
-                proposed_quantity=36,
+                proposed_quantity=Decimal("36"),
                 pack_count=36,
                 pack_size=1,
-                estimated_cost=360.0,
+                estimated_cost=Decimal("360.00"),
             )
             req_created = True
 
-            appr, req = store.request_service.approve_or_reject_request(
+            appr, req = repo.requests.record_approval(
                 request_id=req.id,
-                approver_id="00000000-0000-0000-0000-000000000002",
+                approver_id=UUID("00000000-0000-0000-0000-000000000002"),
                 action=ApprovalAction.APPROVED,
                 target_version_number=1,
             )
             appr_recorded = True
 
-            req, sub_res = store.request_service.submit_request(
+            req, sub_res = repo.requests.submit_request(
                 request_id=req.id,
                 actor_id="00000000-0000-0000-0000-000000000001",
                 simulated=True,
             )
             sub_executed = sub_res.get("success", False)
 
-            verif, req = store.request_service.verify_submission_outcome(
+            verif, req = repo.requests.verify_submission_outcome(
                 request_id=req.id,
                 actual_sku="SKU-001",
                 actual_quantity=36,
@@ -191,7 +194,7 @@ def execute_scenario(case_id: str) -> TestRunRead:
 
             passed = req_created and appr_recorded and sub_executed and ver_passed
             evidence_notes.append(
-                f"Full lifecycle validated: Request {req.id} created, approved, simulated ({sub_res.get('order_reference')}), verified."
+                f"Full lifecycle validated: Request {req.id} created, approved, simulated ({sub_res.get('po_reference', sub_res.get('order_reference'))}), verified."
             )
 
     elif c_id == "TC2":
@@ -203,29 +206,29 @@ def execute_scenario(case_id: str) -> TestRunRead:
             and actual_result["status"] == "ready"
         ):
             # Test pack compliance in request service
-            req, ver, _ = store.request_service.create_reorder_request(
+            req, ver, _ = repo.requests.create_request(
                 user_id="00000000-0000-0000-0000-000000000001",
                 analysis_id=str(uuid.uuid4()),
                 product_id=str(analysis.product_id),
                 sku=sku,
                 supplier_name="Bulk Co",
-                proposed_quantity=36,
+                proposed_quantity=Decimal("36"),
                 pack_count=3,
                 pack_size=12,
-                estimated_cost=360.0,
+                estimated_cost=Decimal("360.00"),
             )
-            appr, req = store.request_service.approve_or_reject_request(
+            appr, req = repo.requests.record_approval(
                 request_id=req.id,
-                approver_id="00000000-0000-0000-0000-000000000002",
+                approver_id=UUID("00000000-0000-0000-0000-000000000002"),
                 action=ApprovalAction.APPROVED,
                 target_version_number=1,
             )
-            req, sub_res = store.request_service.submit_request(
+            req, sub_res = repo.requests.submit_request(
                 request_id=req.id,
                 actor_id="00000000-0000-0000-0000-000000000001",
                 simulated=True,
             )
-            verif, req = store.request_service.verify_submission_outcome(
+            verif, req = repo.requests.verify_submission_outcome(
                 request_id=req.id,
                 actual_sku="SKU-002",
                 actual_quantity=36,
@@ -284,15 +287,19 @@ def execute_scenario(case_id: str) -> TestRunRead:
         created_at=now,
     )
 
-    store.test_runs[test_run.id] = test_run
+    u_id = UUID("00000000-0000-0000-0000-000000000001")
+    repo.test_runs.save_test_run(test_run, user_id=u_id)
     return test_run
 
 
 @router.post("/run/{case_id}", summary="Run official acceptance test scenario (TC1–TC4)")
-async def run_scenario_endpoint(case_id: str) -> dict[str, Any]:
+async def run_scenario_endpoint(
+    case_id: str,
+    repo: RepositoryManager = Depends(get_repository_manager),
+) -> dict[str, Any]:
     """Execute official scenario run with input, expected, actual, evidence, and pass/fail."""
     try:
-        run = execute_scenario(case_id)
+        run = execute_scenario(case_id, repo=repo)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
@@ -300,18 +307,20 @@ async def run_scenario_endpoint(case_id: str) -> dict[str, Any]:
 
     return make_json_safe({
         "test_run": run,
-        "is_synthetic": True,
-        "source_type": "mock_source",
+        "is_synthetic": not repo.is_persistent,
+        "source_type": "database" if repo.is_persistent else "mock_source",
     })
 
 
 @router.post("/run-all", summary="Run all official acceptance scenarios (TC1–TC4)")
-async def run_all_scenarios_endpoint() -> dict[str, Any]:
+async def run_all_scenarios_endpoint(
+    repo: RepositoryManager = Depends(get_repository_manager),
+) -> dict[str, Any]:
     """Execute all four official acceptance scenarios."""
     results = []
     all_passed = True
     for case_id in ["TC1", "TC2", "TC3", "TC4"]:
-        run = execute_scenario(case_id)
+        run = execute_scenario(case_id, repo=repo)
         results.append(run)
         if run.status != TestStatus.PASS:
             all_passed = False
@@ -326,10 +335,11 @@ async def run_all_scenarios_endpoint() -> dict[str, Any]:
 
 
 @router.get("", summary="List past test runs")
-async def list_test_runs() -> dict[str, Any]:
+async def list_test_runs(
+    repo: RepositoryManager = Depends(get_repository_manager),
+) -> dict[str, Any]:
     """Retrieve all historical test runs."""
-    store = get_backend_store()
-    items = list(store.test_runs.values())
+    items = repo.test_runs.list_test_runs()
     return make_json_safe({
         "items": items,
         "total": len(items),

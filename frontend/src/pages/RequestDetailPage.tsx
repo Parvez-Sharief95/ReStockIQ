@@ -1,17 +1,22 @@
 import React, { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { dataService, getCurrentUser } from '../services/dataService';
+import { dataService, getCurrentUser, ApiError } from '../services/dataService';
 import { AuditTrailList } from '../components/AuditTrailList';
 
 export const RequestDetailPage: React.FC = () => {
   const { id = '' } = useParams<{ id: string }>();
-  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'warning'; text: string } | null>(null);
   const [forceFailSubmission, setForceFailSubmission] = useState<boolean>(false);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // Verification test controls
   const [actSku, setActSku] = useState<string>('');
   const [actQty, setActQty] = useState<number>(0);
   const [simulateDup, setSimulateDup] = useState<boolean>(false);
+
+  // Re-render on local state changes
+  const [, forceUpdate] = useState(0);
+  const refresh = () => forceUpdate((n) => n + 1);
 
   const request = dataService.getRequestById(id);
   const versions = dataService.getVersions(id);
@@ -37,52 +42,105 @@ export const RequestDetailPage: React.FC = () => {
   const isSubmitted = request.status === 'submitted_or_simulated' || request.status === 'verified';
   const isVerified = request.status === 'verified';
 
-  const handleApprove = () => {
+  const handleApprove = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    setFeedback(null);
     try {
-      dataService.approveOrReject(request.id, 'approved', 'Approved from detail audit view', latestVer?.version_number);
-      setFeedback({ type: 'success', text: `Request approved for version v${latestVer?.version_number}.` });
-    } catch (err: any) {
-      setFeedback({ type: 'error', text: err.message });
+      try {
+        await dataService.approveOrRejectApi(request.id, 'approved', 'Approved from detail audit view', latestVer?.version_number);
+        refresh();
+        setFeedback({ type: 'success', text: `Request approved (v${latestVer?.version_number}).` });
+      } catch (apiErr: unknown) {
+        if (apiErr instanceof ApiError && apiErr.code === 'NETWORK_ERROR') {
+          dataService.approveOrReject(request.id, 'approved', 'Approved from detail audit view (offline)', latestVer?.version_number);
+          refresh();
+          setFeedback({ type: 'warning', text: 'Backend unreachable — approved locally only. Will not persist until backend reconnects.' });
+          return;
+        }
+        throw apiErr;
+      }
+    } catch (err: unknown) {
+      setFeedback({ type: 'error', text: err instanceof Error ? err.message : 'Approval failed.' });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    setFeedback(null);
     try {
-      const res = dataService.submitOrder(request.id, forceFailSubmission);
-      if (res.success) {
-        setFeedback({
-          type: 'success',
-          text: `Simulated order generated successfully: ${res.orderReference}`,
-        });
-        // Pre-fill verification form with intended values for convenience
-        setActSku(request.sku);
-        setActQty(request.proposed_quantity);
-      } else {
-        setFeedback({
-          type: 'error',
-          text: `Simulated order submission failed: ${res.error}. Request status marked as FAILED.`,
-        });
+      try {
+        const res = await dataService.submitOrderApi(request.id, forceFailSubmission);
+        refresh();
+        if (res.result.success) {
+          setFeedback({ type: 'success', text: `Simulated order generated: ${res.result.order_reference || 'SIM-PO-DEMO'}` });
+          setActSku(request.sku);
+          setActQty(request.proposed_quantity);
+        } else {
+          setFeedback({ type: 'error', text: `Simulated submission failed: ${res.result.error || 'Unknown error'}.` });
+        }
+      } catch (apiErr: unknown) {
+        if (apiErr instanceof ApiError && apiErr.code === 'NETWORK_ERROR') {
+          const localRes = dataService.submitOrder(request.id, forceFailSubmission);
+          refresh();
+          if (localRes.success) {
+            setFeedback({ type: 'warning', text: `Backend unreachable — order simulated locally: ${localRes.orderReference}. Will not persist.` });
+            setActSku(request.sku);
+            setActQty(request.proposed_quantity);
+          } else {
+            setFeedback({ type: 'error', text: `Submission failed: ${localRes.error}` });
+          }
+          return;
+        }
+        throw apiErr;
       }
-    } catch (err: any) {
-      setFeedback({ type: 'error', text: err.message });
+    } catch (err: unknown) {
+      setFeedback({ type: 'error', text: err instanceof Error ? err.message : 'Submission failed.' });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleVerify = () => {
+  const handleVerify = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    setFeedback(null);
     try {
-      const res = dataService.verifyOutcome(request.id, {
-        actualSku: actSku || request.sku,
-        actualQuantity: actQty || request.proposed_quantity,
-        simulateDuplicate: simulateDup,
-      });
-
-      if (res.verification.status === 'verified') {
-        setFeedback({ type: 'success', text: 'Independent verification PASSED: Actual matches intended parameters.' });
-      } else {
-        setFeedback({ type: 'error', text: 'Independent verification FAILED: Parameter mismatch detected.' });
+      try {
+        const res = await dataService.verifyOutcomeApi(request.id, {
+          actualSku: actSku || request.sku,
+          actualQuantity: actQty || request.proposed_quantity,
+          simulateDuplicate: simulateDup,
+        });
+        refresh();
+        if (res.verification.status === 'verified') {
+          setFeedback({ type: 'success', text: 'Independent verification PASSED: Actual matches intended parameters.' });
+        } else {
+          setFeedback({ type: 'error', text: 'Independent verification FAILED: Parameter mismatch detected.' });
+        }
+      } catch (apiErr: unknown) {
+        if (apiErr instanceof ApiError && apiErr.code === 'NETWORK_ERROR') {
+          const localRes = dataService.verifyOutcome(request.id, {
+            actualSku: actSku || request.sku,
+            actualQuantity: actQty || request.proposed_quantity,
+            simulateDuplicate: simulateDup,
+          });
+          refresh();
+          const msg = localRes.verification.status === 'verified'
+            ? 'Verified locally only (backend unreachable). Will not persist.'
+            : 'Verification FAILED locally (backend unreachable).';
+          setFeedback({ type: 'warning', text: msg });
+          return;
+        }
+        throw apiErr;
       }
-    } catch (err: any) {
-      setFeedback({ type: 'error', text: err.message });
+    } catch (err: unknown) {
+      setFeedback({ type: 'error', text: err instanceof Error ? err.message : 'Verification failed.' });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -115,7 +173,7 @@ export const RequestDetailPage: React.FC = () => {
 
       {feedback && (
         <div
-          className={`badge ${feedback.type === 'success' ? 'badge-success' : 'badge-danger'}`}
+          className={`badge ${feedback.type === 'success' ? 'badge-success' : feedback.type === 'warning' ? 'badge-warning' : 'badge-danger'}`}
           style={{ width: '100%', padding: '0.85rem', marginBottom: '1.5rem', fontSize: '0.85rem' }}
         >
           {feedback.text}
@@ -146,9 +204,7 @@ export const RequestDetailPage: React.FC = () => {
         {/* Active Proposal Summary */}
         <div className="card-editorial">
           <div className="card-header-editorial">
-            <h3>
-              <span>📋</span> Current Proposal Details (v{latestVer?.version_number})
-            </h3>
+            <h3>Current Proposal Details (v{latestVer?.version_number})</h3>
             <span className="badge badge-neutral">Active Snapshot</span>
           </div>
           <div className="card-body-editorial">
@@ -186,8 +242,13 @@ export const RequestDetailPage: React.FC = () => {
             {/* Approval Action if still pending */}
             {request.status === 'pending_approval' && (
               <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--color-border-light)' }}>
-                <button onClick={handleApprove} className="btn btn-primary" style={{ width: '100%' }}>
-                  <span>✅</span> Grant Human Approval (as {currentUser.name})
+                <button
+                  onClick={handleApprove}
+                  className="btn btn-primary"
+                  style={{ width: '100%' }}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? 'Approving…' : `Grant Human Approval (as ${currentUser.name})`}
                 </button>
               </div>
             )}
@@ -197,9 +258,7 @@ export const RequestDetailPage: React.FC = () => {
         {/* Submission & Verification Controls */}
         <div className="card-editorial">
           <div className="card-header-editorial">
-            <h3>
-              <span>⚡</span> Consequential Submission &amp; Outcome Verification
-            </h3>
+            <h3>Consequential Submission &amp; Outcome Verification</h3>
             <span className="badge badge-warning">Human Guard Enforced</span>
           </div>
           <div className="card-body-editorial">
@@ -222,8 +281,13 @@ export const RequestDetailPage: React.FC = () => {
                       Simulate gateway failure (test visible error state)
                     </label>
                   </div>
-                  <button onClick={handleSubmit} className="btn btn-accent" style={{ width: '100%' }}>
-                    <span>🚀</span> Submit Order to Supplier (Simulated PO)
+                  <button
+                    onClick={handleSubmit}
+                    className="btn btn-accent"
+                    style={{ width: '100%' }}
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? 'Submitting…' : 'Submit Order to Supplier (Simulated PO)'}
                   </button>
                 </div>
               ) : request.status === 'submitted_or_simulated' || request.status === 'verified' ? (
@@ -235,7 +299,7 @@ export const RequestDetailPage: React.FC = () => {
                 </div>
               ) : (
                 <div style={{ background: 'var(--color-danger-bg)', border: '1px solid var(--color-danger-border)', padding: '0.75rem', borderRadius: 'var(--radius-md)', fontSize: '0.8125rem', color: 'var(--color-danger)' }}>
-                  🚫 <strong>Submission Blocked:</strong> Human approval is mandatory before any order can be submitted. Status is currently: <span className="mono">{request.status}</span>.
+                  <strong>Submission Blocked:</strong> Human approval is mandatory before any order can be submitted. Status is currently: <span className="mono">{request.status}</span>.
                 </div>
               )}
             </div>
@@ -290,7 +354,7 @@ export const RequestDetailPage: React.FC = () => {
                 className="btn btn-outline"
                 style={{ width: '100%' }}
               >
-                <span>🔍</span> Run Independent Verification Audit
+                Run Independent Verification Audit
               </button>
 
               {verification && (
@@ -311,9 +375,7 @@ export const RequestDetailPage: React.FC = () => {
         {/* Version Snapshots */}
         <div className="card-editorial">
           <div className="card-header-editorial">
-            <h3>
-              <span>📜</span> Immutable Version Snapshots ({versions.length})
-            </h3>
+            <h3>Immutable Version Snapshots ({versions.length})</h3>
             <span className="badge badge-neutral">Rule S2 Enforced</span>
           </div>
           <div className="card-body-editorial">
@@ -350,9 +412,7 @@ export const RequestDetailPage: React.FC = () => {
         {/* Append-Only Audit Trail */}
         <div className="card-editorial">
           <div className="card-header-editorial">
-            <h3>
-              <span>⏱️</span> Chronological Audit Trail
-            </h3>
+            <h3>Chronological Audit Trail</h3>
             <span className="badge badge-info">{auditEvents.length} Events</span>
           </div>
           <div className="card-body-editorial">

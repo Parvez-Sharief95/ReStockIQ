@@ -1,5 +1,5 @@
 /* ═════════════════════════════════════════════════════════════════════════════
-   Inventory Reorder Planner — "Editorial Supply-Chain Precision" Design System
+   ReStockIQ — "Editorial Supply-Chain Precision" Design System
    Fixed Brand Palette: Deep Aubergine (#3A0F34), Ice Silver (#DDE3E8), Marigold (#EAAA00)
    Supporting: Lifted Silver (#EEF2F5), Deepest Aubergine (#250821), Elevated Plum (#471440)
    ═════════════════════════════════════════════════════════════════════════════ */
@@ -185,6 +185,10 @@ h1, h2, h3, h4, h5, h6 {
   letter-spacing: -0.01em;
   margin: 0;
   line-height: 1.2;
+}
+
+.brand-accent {
+  color: var(--color-marigold);
 }
 
 .brand-subtitle {

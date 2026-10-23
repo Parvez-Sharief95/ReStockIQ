@@ -1,5 +1,4 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// TypeScript domain types — Inventory Reorder Planner
+// TypeScript domain types — ReStockIQ
 // Mirror the Pydantic schemas in backend/app/schemas/models.py
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -285,4 +284,12 @@ export interface PaginatedResponse<T> {
   page: number;
   page_size: number;
   items: T[];
+}
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  role: 'planner' | 'approver' | 'auditor' | 'admin';
+  is_demo?: boolean;
 }

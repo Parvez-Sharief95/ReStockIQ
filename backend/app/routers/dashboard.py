@@ -1,25 +1,25 @@
-"""
-dashboard.py — Dashboard Summary Metrics Endpoint
-Phase 8 Implementation
+"""dashboard.py — Dashboard Summary Metrics Endpoint
+Phase 8 & 9 Implementation
 """
 from __future__ import annotations
 
 from typing import Any
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from backend.app.schemas.models import RequestStatus
 from backend.app.services.agent_orchestrator import make_json_safe
-from backend.app.services.backend_store import get_backend_store
+from backend.app.services.repository import RepositoryManager, get_repository_manager
 
 router = APIRouter()
 
 
 @router.get("", summary="Get dashboard summary metrics")
-async def get_dashboard_summary() -> dict[str, Any]:
+async def get_dashboard_summary(
+    repo: RepositoryManager = Depends(get_repository_manager),
+) -> dict[str, Any]:
     """Retrieve operational metrics for dashboard overview."""
-    store = get_backend_store()
-    products = store.get_products()
-    requests = list(store.request_service._requests.values())
+    products = repo.inventory.list_products()
+    requests = repo.requests.list_requests()
 
     pending_approvals = [r for r in requests if r.status == RequestStatus.PENDING_APPROVAL]
     submitted_orders = [
@@ -42,7 +42,7 @@ async def get_dashboard_summary() -> dict[str, Any]:
             "submitted_orders": len(submitted_orders),
             "total_requests": len(requests),
         },
-        "source_type": "mock_source",
-        "is_synthetic": True,
-        "note": "Metrics generated from synthetic demo catalog (TC1–TC4).",
+        "source_type": "database" if repo.is_persistent else "mock_source",
+        "is_synthetic": not repo.is_persistent,
+        "note": "Metrics generated from persistent database." if repo.is_persistent else "Metrics generated from synthetic demo catalog (TC1–TC4).",
     })

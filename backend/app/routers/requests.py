@@ -1,6 +1,5 @@
-"""
-requests.py — Reorder Requests, Lifecycle, Approval Invalidation & Verification Endpoints
-Phase 8 Implementation
+"""requests.py — Reorder Requests, Lifecycle, Approval Invalidation & Verification Endpoints
+Phase 8 & 9 Implementation
 """
 from __future__ import annotations
 
@@ -9,7 +8,7 @@ from typing import Any
 from uuid import UUID
 import uuid
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from backend.app.schemas.models import (
@@ -18,7 +17,8 @@ from backend.app.schemas.models import (
     RequestStatus,
 )
 from backend.app.services.agent_orchestrator import make_json_safe
-from backend.app.services.backend_store import get_backend_store
+from backend.app.services.auth import AuthenticatedUser, get_current_user_optional
+from backend.app.services.repository import RepositoryManager, get_repository_manager
 
 router = APIRouter()
 
@@ -70,28 +70,29 @@ class VerifyOutcomePayload(BaseModel):
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("", summary="Create a reorder request with idempotency protection", status_code=status.HTTP_201_CREATED)
-async def create_request(payload: CreateReorderRequestPayload) -> dict[str, Any]:
+async def create_request(
+    payload: CreateReorderRequestPayload,
+    repo: RepositoryManager = Depends(get_repository_manager),
+    current_user: AuthenticatedUser | None = Depends(get_current_user_optional),
+) -> dict[str, Any]:
     """Create a reorder request in pending_approval status.
 
     Safety Rules:
     - Rejects creation if analysis has insufficient data or failed evidence.
     - Idempotency protection: returns existing request on duplicate submission.
     """
-    store = get_backend_store()
-
     # Safety Guard: Check source analysis validity
     try:
         a_uuid = UUID(payload.analysis_id)
-        if a_uuid in store.analyses:
-            analysis = store.analyses[a_uuid]
-            if analysis.analysis_status == AnalysisStatus.INSUFFICIENT_DATA:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=(
-                        "Cannot create purchase request: the referenced analysis has status "
-                        f"'insufficient_data' ({analysis.status_reason or 'unresolved data issues'})."
-                    ),
-                )
+        analysis = repo.analyses.get_analysis(a_uuid)
+        if analysis and analysis.analysis_status == AnalysisStatus.INSUFFICIENT_DATA:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Cannot create purchase request: the referenced analysis has status "
+                    f"'insufficient_data' ({analysis.status_reason or 'unresolved data issues'})."
+                ),
+            )
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -106,8 +107,9 @@ async def create_request(payload: CreateReorderRequestPayload) -> dict[str, Any]
             detail=f"Proposed quantity ({qty}) must be a multiple of pack size ({payload.pack_size}).",
         )
 
-    user_id = payload.user_id or "00000000-0000-0000-0000-000000000001"
-    req, ver, is_dup = store.request_service.create_reorder_request(
+    user_id = str(current_user.id) if current_user else (payload.user_id or "00000000-0000-0000-0000-000000000001")
+    actor_id = str(current_user.id) if current_user else (payload.actor_id or user_id)
+    req, ver, is_dup = repo.requests.create_request(
         user_id=user_id,
         analysis_id=payload.analysis_id,
         product_id=payload.product_id,
@@ -116,66 +118,69 @@ async def create_request(payload: CreateReorderRequestPayload) -> dict[str, Any]
         proposed_quantity=qty,
         pack_count=payload.pack_count,
         pack_size=payload.pack_size,
-        estimated_cost=payload.estimated_cost,
+        estimated_cost=Decimal(str(payload.estimated_cost)),
         currency=payload.currency,
         calculation_version=payload.calculation_version,
         idempotency_key=payload.idempotency_key,
-        actor_id=payload.actor_id or user_id,
+        actor_id=actor_id,
     )
 
     return make_json_safe({
         "request": req,
         "version": ver,
         "is_duplicate": is_dup,
-        "source_type": "mock_source",
+        "source_type": "database" if repo.is_persistent else "mock_source",
     })
 
 
 @router.get("", summary="List reorder requests")
 async def list_requests(
     request_status: str | None = Query(None, alias="status", description="Filter by RequestStatus"),
+    repo: RepositoryManager = Depends(get_repository_manager),
 ) -> dict[str, Any]:
     """Retrieve all reorder requests, optionally filtered by status."""
-    store = get_backend_store()
-    reqs = list(store.request_service._requests.values())
-    if request_status:
-        reqs = [r for r in reqs if r.status.value == request_status.lower()]
+    st_filter = RequestStatus(request_status.lower()) if request_status else None
+    reqs = repo.requests.list_requests(status=st_filter)
 
     return make_json_safe({
         "items": reqs,
         "total": len(reqs),
-        "source_type": "mock_source",
+        "source_type": "database" if repo.is_persistent else "mock_source",
     })
 
 
 @router.get("/{request_id}", summary="Get request details by ID")
-async def get_request_by_id(request_id: str) -> dict[str, Any]:
+async def get_request_by_id(
+    request_id: str,
+    repo: RepositoryManager = Depends(get_repository_manager),
+) -> dict[str, Any]:
     """Retrieve reorder request details, active version, and audit count."""
-    store = get_backend_store()
     try:
         r_uuid = UUID(request_id)
     except ValueError:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid request UUID format")
 
-    if r_uuid not in store.request_service._requests:
+    req = repo.requests.get_request(r_uuid)
+    if not req:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Request '{request_id}' not found")
 
-    req = store.request_service._requests[r_uuid]
-    ver = store.request_service.get_latest_version(r_uuid)
+    ver = repo.requests.get_latest_version(r_uuid)
     return make_json_safe({
         "request": req,
         "latest_version": ver,
-        "source_type": "mock_source",
+        "source_type": "database" if repo.is_persistent else "mock_source",
     })
 
 
 @router.get("/{request_id}/versions", summary="Get version history for request")
-async def get_request_versions(request_id: str) -> dict[str, Any]:
+async def get_request_versions(
+    request_id: str,
+    repo: RepositoryManager = Depends(get_repository_manager),
+) -> dict[str, Any]:
     """Retrieve all immutable proposal versions for a request."""
-    store = get_backend_store()
     try:
         r_uuid = UUID(request_id)
-        versions = store.request_service.get_versions(r_uuid)
+        versions = repo.requests.get_versions(r_uuid)
     except (ValueError, KeyError) as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -186,12 +191,14 @@ async def get_request_versions(request_id: str) -> dict[str, Any]:
 
 
 @router.get("/{request_id}/audit", summary="Get append-only audit trail for request")
-async def get_request_audit(request_id: str) -> dict[str, Any]:
+async def get_request_audit(
+    request_id: str,
+    repo: RepositoryManager = Depends(get_repository_manager),
+) -> dict[str, Any]:
     """Retrieve immutable chronological audit trail for a request."""
-    store = get_backend_store()
     try:
         r_uuid = UUID(request_id)
-        events = store.request_service.get_audit_trail(r_uuid)
+        events = repo.requests.get_audit_trail(r_uuid)
     except ValueError:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid request UUID format")
 
@@ -202,19 +209,23 @@ async def get_request_audit(request_id: str) -> dict[str, Any]:
 
 
 @router.patch("/{request_id}/proposal", summary="Update request proposal (Rule S2: invalidates approval)")
-async def update_proposal(request_id: str, payload: UpdateProposalPayload) -> dict[str, Any]:
+async def update_proposal(
+    request_id: str,
+    payload: UpdateProposalPayload,
+    repo: RepositoryManager = Depends(get_repository_manager),
+    current_user: AuthenticatedUser | None = Depends(get_current_user_optional),
+) -> dict[str, Any]:
     """Modify proposal parameters, incrementing version and invalidating prior approval."""
-    store = get_backend_store()
     try:
         r_uuid = UUID(request_id)
-        actor = payload.actor_id or "00000000-0000-0000-0000-000000000001"
-        req, new_ver = store.request_service.update_proposal(
+        actor = str(current_user.id) if current_user else (payload.actor_id or "00000000-0000-0000-0000-000000000001")
+        req, new_ver = repo.requests.update_proposal(
             request_id=r_uuid,
             actor_id=actor,
-            proposed_quantity=payload.proposed_quantity,
+            proposed_quantity=Decimal(str(payload.proposed_quantity)) if payload.proposed_quantity is not None else None,
             pack_count=payload.pack_count,
             pack_size=payload.pack_size,
-            estimated_cost=payload.estimated_cost,
+            estimated_cost=Decimal(str(payload.estimated_cost)) if payload.estimated_cost is not None else None,
             supplier_name=payload.supplier_name,
             currency=payload.currency,
             modification_reason=payload.modification_reason,
@@ -232,18 +243,22 @@ async def update_proposal(request_id: str, payload: UpdateProposalPayload) -> di
 
 
 @router.post("/{request_id}/submit", summary="Simulated order submission (Requires human approval)")
-async def submit_order(request_id: str, payload: SubmitOrderPayload) -> dict[str, Any]:
+async def submit_order(
+    request_id: str,
+    payload: SubmitOrderPayload,
+    repo: RepositoryManager = Depends(get_repository_manager),
+    current_user: AuthenticatedUser | None = Depends(get_current_user_optional),
+) -> dict[str, Any]:
     """Submit purchase order in simulated mode.
 
     MANDATORY GATES:
     - Human approval must have been recorded on the current active version.
     - If unapproved or outdated, strictly blocks execution (403 Forbidden).
     """
-    store = get_backend_store()
     try:
         r_uuid = UUID(request_id)
-        actor = payload.actor_id or "00000000-0000-0000-0000-000000000001"
-        req, result = store.request_service.submit_request(
+        actor = str(current_user.id) if current_user else (payload.actor_id or "00000000-0000-0000-0000-000000000001")
+        req, result = repo.requests.submit_request(
             request_id=r_uuid,
             actor_id=actor,
             simulated=True,
@@ -262,21 +277,25 @@ async def submit_order(request_id: str, payload: SubmitOrderPayload) -> dict[str
 
 
 @router.post("/{request_id}/verify", summary="Run independent outcome verification after submission")
-async def verify_outcome(request_id: str, payload: VerifyOutcomePayload) -> dict[str, Any]:
+async def verify_outcome(
+    request_id: str,
+    payload: VerifyOutcomePayload,
+    repo: RepositoryManager = Depends(get_repository_manager),
+    current_user: AuthenticatedUser | None = Depends(get_current_user_optional),
+) -> dict[str, Any]:
     """Perform independent verification comparing actual outcome with intended request parameters."""
-    store = get_backend_store()
     try:
         r_uuid = UUID(request_id)
-        actor = payload.actor_id or "00000000-0000-0000-0000-000000000001"
+        actor = str(current_user.id) if current_user else (payload.actor_id or "00000000-0000-0000-0000-000000000001")
 
         open_pos = payload.existing_open_po_references or []
         if payload.simulate_duplicate:
             open_pos = ["SIM-PO-EXISTING-CONFLICT", "SIM-PO-EXISTING-CONFLICT"]
 
-        ver, req = store.request_service.verify_submission_outcome(
+        ver, req = repo.requests.verify_submission_outcome(
             request_id=r_uuid,
             actual_sku=payload.actual_sku,
-            actual_quantity=payload.actual_quantity,
+            actual_quantity=Decimal(str(payload.actual_quantity)),
             actual_pack_size=payload.actual_pack_size,
             existing_open_po_references=open_pos,
             actor_id=actor,
@@ -291,12 +310,14 @@ async def verify_outcome(request_id: str, payload: VerifyOutcomePayload) -> dict
 
 
 @router.get("/{request_id}/verification", summary="Get verification result for request")
-async def get_verification(request_id: str) -> dict[str, Any]:
+async def get_verification(
+    request_id: str,
+    repo: RepositoryManager = Depends(get_repository_manager),
+) -> dict[str, Any]:
     """Retrieve independent outcome verification result for a request."""
-    store = get_backend_store()
     try:
         r_uuid = UUID(request_id)
-        ver = store.request_service.get_verification_result(r_uuid)
+        ver = repo.requests.get_verification(r_uuid)
     except ValueError:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid request UUID format")
 

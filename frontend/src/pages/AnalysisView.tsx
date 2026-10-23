@@ -76,8 +76,9 @@ export const AnalysisView: React.FC = () => {
       setTimeout(() => {
         navigate(`/requests/${request.id}`);
       }, 1500);
-    } catch (err: any) {
-      setFeedbackMessage({ type: 'error', text: err.message || 'Failed to create reorder request.' });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to create reorder request.';
+      setFeedbackMessage({ type: 'error', text: msg });
     } finally {
       setIsSubmitting(false);
     }
@@ -127,9 +128,7 @@ export const AnalysisView: React.FC = () => {
         {/* Step-by-Step Calculation Formula Card */}
         <div className="card-editorial">
           <div className="card-header-editorial">
-            <h3>
-              <span>📐</span> Mathematical Calculation Walkthrough
-            </h3>
+            <h3>Mathematical Calculation Walkthrough</h3>
             <span className="mono text-muted" style={{ fontSize: '0.75rem' }}>
               Snapshot: {new Date(analysis.created_at).toLocaleTimeString()}
             </span>
@@ -211,7 +210,7 @@ export const AnalysisView: React.FC = () => {
               )}
               {analysis.status_reason && (
                 <div style={{ fontSize: '0.8rem', color: 'var(--color-danger)', fontWeight: 600, marginTop: '0.35rem' }}>
-                  ⚠️ {analysis.status_reason}
+                  {analysis.status_reason}
                 </div>
               )}
             </div>
@@ -222,9 +221,7 @@ export const AnalysisView: React.FC = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           <div className="card-editorial">
             <div className="card-header-editorial">
-              <h3>
-                <span>📝</span> Prepare Reorder Request
-              </h3>
+              <h3>Prepare Reorder Request</h3>
               <span className="badge badge-warning">Draft Creator</span>
             </div>
 
@@ -263,7 +260,7 @@ export const AnalysisView: React.FC = () => {
                 className="btn btn-accent"
                 style={{ width: '100%', padding: '0.75rem' }}
               >
-                <span>➕</span> Generate Reorder Request (v1)
+                Generate Reorder Request (v1)
               </button>
 
               <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.75rem', textAlign: 'center' }}>
@@ -275,9 +272,7 @@ export const AnalysisView: React.FC = () => {
           {/* Evidence Provenance Card */}
           <div className="card-editorial">
             <div className="card-header-editorial">
-              <h3>
-                <span>🔗</span> Source Evidence Provenance (Rule A12)
-              </h3>
+              <h3>Source Evidence Provenance (Rule A12)</h3>
               <span className="badge badge-success">4/4 Verified</span>
             </div>
 

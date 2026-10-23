@@ -38,12 +38,25 @@ export class ApiError extends Error {
 
 const API_BASE_URL = (import.meta as unknown as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL ?? '';
 
+let authTokenProvider: (() => string | null) | null = null;
+
+export function setAuthTokenProvider(provider: (() => string | null) | null): void {
+  authTokenProvider = provider;
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
-  const headers = {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...(options.headers || {}),
+    ...(options.headers as Record<string, string> || {}),
   };
+
+  if (!headers['Authorization'] && authTokenProvider) {
+    const token = authTokenProvider();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+  }
 
   try {
     const response = await fetch(url, {
@@ -224,7 +237,6 @@ export const apiClient = {
     action: ApprovalAction;
     target_version_number?: number | null;
     notes?: string | null;
-    approver_id?: string | null;
   }): Promise<{
     approval: unknown;
     request: ReorderRequest;

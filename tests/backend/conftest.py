@@ -66,10 +66,16 @@ def base_sales_history() -> dict[str, Any]:
     }
 
 
+from backend.app.services.repository import create_in_memory_repository_manager, get_repository_manager
+
+
 @pytest.fixture
 def api_client() -> TestClient:
     """FastAPI TestClient with fresh store state."""
     store = get_backend_store()
     store.reset()
-    client = TestClient(app)
-    return client
+    app.dependency_overrides[get_repository_manager] = create_in_memory_repository_manager
+    with TestClient(app) as client:
+        yield client
+    app.dependency_overrides.pop(get_repository_manager, None)
+

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { apiClient, ApiError } from '../services/apiClient';
+import { apiClient, ApiError, setAuthTokenProvider } from '../services/apiClient';
 
 describe('FastAPI API Client (Phase 8)', () => {
   beforeEach(() => {
@@ -123,5 +123,28 @@ describe('FastAPI API Client (Phase 8)', () => {
     expect(res.test_run.case_id).toBe('TC1');
     expect(res.test_run.status).toBe('pass');
     expect(res.is_synthetic).toBe(true);
+  });
+
+  it('injects Bearer token from authTokenProvider in request headers', async () => {
+    setAuthTokenProvider(() => 'demo-approver-token');
+    let capturedHeaders: Record<string, string> | undefined;
+    globalThis.fetch = vi.fn().mockImplementation(async (_url, options) => {
+      capturedHeaders = options.headers;
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ approval: {}, request: { id: 'req-1', status: 'approved' }, status: 'approved' }),
+      };
+    });
+
+    const res = await apiClient.recordApproval({
+      request_id: 'req-1',
+      action: 'approved',
+      target_version_number: 1,
+    });
+
+    expect(res.status).toBe('approved');
+    expect(capturedHeaders?.['Authorization']).toBe('Bearer demo-approver-token');
   });
 });

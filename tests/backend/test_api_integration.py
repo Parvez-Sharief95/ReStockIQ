@@ -240,6 +240,7 @@ def test_approval_gating_and_rule_s2_invalidation(api_client: TestClient) -> Non
             "target_version_number": 1,
             "notes": "Approved by Purchasing Manager",
         },
+        headers={"Authorization": "Bearer demo-approver-token"},
     )
     assert appr_resp.status_code == 200
     assert appr_resp.json()["request"]["status"] == "approved"
@@ -270,6 +271,7 @@ def test_approval_gating_and_rule_s2_invalidation(api_client: TestClient) -> Non
             "target_version_number": 2,
             "notes": "Re-approved version 2",
         },
+        headers={"Authorization": "Bearer demo-approver-token"},
     )
     assert appr_v2.status_code == 200
 
@@ -305,6 +307,7 @@ def test_independent_outcome_verification(api_client: TestClient) -> None:
     api_client.post(
         "/api/approvals",
         json={"request_id": req_id, "action": "approved", "target_version_number": 1},
+        headers={"Authorization": "Bearer demo-approver-token"},
     )
     api_client.post(f"/api/requests/{req_id}/submit", json={})
 

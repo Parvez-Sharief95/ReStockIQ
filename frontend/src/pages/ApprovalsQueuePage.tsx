@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { dataService, getCurrentUser } from '../services/dataService';
+import { dataService, getCurrentUser, ApiError } from '../services/dataService';
 import { ReorderRequest } from '../types';
 
 export const ApprovalsQueuePage: React.FC = () => {
@@ -10,7 +10,13 @@ export const ApprovalsQueuePage: React.FC = () => {
   const [notes, setNotes] = useState<string>('');
   const [modifyQty, setModifyQty] = useState<number>(0);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
 
+  // Re-render trigger so the queue reflects backend mutations immediately.
+  const [, forceUpdate] = useState(0);
+  const refreshQueue = () => forceUpdate((n) => n + 1);
+
+  // Supabase session may not be ready on mount; re-read on each render.
   const currentUser = getCurrentUser();
   const allRequests = dataService.getRequests();
 
@@ -33,37 +39,85 @@ export const ApprovalsQueuePage: React.FC = () => {
     setFeedback(null);
   };
 
-  const handleConfirmApproval = () => {
+  const handleConfirmApproval = async () => {
     if (!selectedReq) return;
+    setIsLoading(true);
+    setFeedback(null);
     try {
       const latestVer = dataService.getLatestVersion(selectedReq.id);
-      dataService.approveOrReject(
-        selectedReq.id,
-        'approved',
-        notes || 'Approved via Editorial Procurement Queue',
-        latestVer?.version_number
-      );
-      setFeedback(`Request ${selectedReq.id} approved for version ${latestVer?.version_number}.`);
+      try {
+        // Prefer async backend API
+        await dataService.approveOrRejectApi(
+          selectedReq.id,
+          'approved',
+          notes || 'Approved via Approval Queue',
+          latestVer?.version_number
+        );
+      } catch (apiErr: unknown) {
+        if (apiErr instanceof ApiError && apiErr.code === 'NETWORK_ERROR') {
+          // Backend unreachable — fall back to local state with visible warning
+          dataService.approveOrReject(
+            selectedReq.id,
+            'approved',
+            notes || 'Approved via Approval Queue (offline)',
+            latestVer?.version_number
+          );
+          setFeedback(
+            `Backend unreachable. Approved locally only — changes will not persist until backend reconnects.`
+          );
+          setTimeout(() => { refreshQueue(); handleCloseModal(); }, 2000);
+          return;
+        }
+        throw apiErr;
+      }
+      setFeedback(`Request approved (v${latestVer?.version_number}).`);
+      refreshQueue();
       setTimeout(handleCloseModal, 1200);
-    } catch (err: any) {
-      setFeedback(`Error: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      setFeedback(`Error: ${msg}`);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleConfirmRejection = () => {
+  const handleConfirmRejection = async () => {
     if (!selectedReq) return;
+    setIsLoading(true);
+    setFeedback(null);
     try {
       const latestVer = dataService.getLatestVersion(selectedReq.id);
-      dataService.approveOrReject(
-        selectedReq.id,
-        'rejected',
-        notes || 'Rejected by purchasing reviewer.',
-        latestVer?.version_number
-      );
-      setFeedback(`Request ${selectedReq.id} rejected.`);
+      try {
+        await dataService.approveOrRejectApi(
+          selectedReq.id,
+          'rejected',
+          notes || 'Rejected by purchasing reviewer.',
+          latestVer?.version_number
+        );
+      } catch (apiErr: unknown) {
+        if (apiErr instanceof ApiError && apiErr.code === 'NETWORK_ERROR') {
+          dataService.approveOrReject(
+            selectedReq.id,
+            'rejected',
+            notes || 'Rejected by purchasing reviewer. (offline)',
+            latestVer?.version_number
+          );
+          setFeedback(
+            `Backend unreachable. Rejected locally only — changes will not persist until backend reconnects.`
+          );
+          setTimeout(() => { refreshQueue(); handleCloseModal(); }, 2000);
+          return;
+        }
+        throw apiErr;
+      }
+      setFeedback(`Request rejected.`);
+      refreshQueue();
       setTimeout(handleCloseModal, 1200);
-    } catch (err: any) {
-      setFeedback(`Error: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      setFeedback(`Error: ${msg}`);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -86,8 +140,9 @@ export const ApprovalsQueuePage: React.FC = () => {
         `Proposal updated to ${modifyQty} units. Created version v${newVersion.version_number}. Prior approvals invalidated per Rule S2.`
       );
       setTimeout(handleCloseModal, 1600);
-    } catch (err: any) {
-      setFeedback(`Error: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to update proposal.';
+      setFeedback(`Error: ${msg}`);
     }
   };
 
@@ -176,7 +231,7 @@ export const ApprovalsQueuePage: React.FC = () => {
                       <span className="badge badge-neutral">v{latestVer?.version_number || 1}</span>
                       {hasInvalidation && (
                         <div style={{ fontSize: '0.68rem', color: '#8C6500', fontWeight: 700, marginTop: '2px' }}>
-                          ⚡ S2 Invalidated
+                          S2 Invalidated
                         </div>
                       )}
                     </td>
@@ -236,9 +291,9 @@ export const ApprovalsQueuePage: React.FC = () => {
           <div className="modal-editorial">
             <div className="modal-header-editorial">
               <h3>
-                {modalMode === 'approve' && '✅ Authorize Reorder Request'}
-                {modalMode === 'reject' && '❌ Reject Reorder Request'}
-                {modalMode === 'modify' && '✏️ Modify Reorder Proposal (Rule S2)'}
+                {modalMode === 'approve' && 'Authorize Reorder Request'}
+                {modalMode === 'reject' && 'Reject Reorder Request'}
+                {modalMode === 'modify' && 'Modify Reorder Proposal (Rule S2)'}
               </h3>
               <button onClick={handleCloseModal} className="modal-close-btn" aria-label="Close modal">
                 &times;
@@ -277,7 +332,7 @@ export const ApprovalsQueuePage: React.FC = () => {
                     />
                   </div>
                   <div style={{ fontSize: '0.8125rem', color: '#8C6500', background: 'var(--color-warning-bg)', padding: '0.65rem', borderRadius: '4px', border: '1px solid var(--color-warning-border)' }}>
-                    ⚠️ <strong>Rule S2 Notice:</strong> Saving changes will increment the request to version <strong>v{(dataService.getLatestVersion(selectedReq.id)?.version_number || 1) + 1}</strong> and invalidate prior approvals. Re-approval will be required before submission.
+                    <strong>Rule S2 Notice:</strong> Saving changes will increment the request to version <strong>v{(dataService.getLatestVersion(selectedReq.id)?.version_number || 1) + 1}</strong> and invalidate prior approvals. Re-approval will be required before submission.
                   </div>
                 </div>
               ) : (
@@ -301,13 +356,21 @@ export const ApprovalsQueuePage: React.FC = () => {
                 Cancel
               </button>
               {modalMode === 'approve' && (
-                <button onClick={handleConfirmApproval} className="btn btn-primary">
-                  Confirm Human Approval
+                <button
+                  onClick={handleConfirmApproval}
+                  className="btn btn-primary"
+                  disabled={isLoading}
+                >
+                  {isLoading ? 'Approving…' : 'Confirm Human Approval'}
                 </button>
               )}
               {modalMode === 'reject' && (
-                <button onClick={handleConfirmRejection} className="btn btn-danger">
-                  Confirm Rejection
+                <button
+                  onClick={handleConfirmRejection}
+                  className="btn btn-danger"
+                  disabled={isLoading}
+                >
+                  {isLoading ? 'Rejecting…' : 'Confirm Rejection'}
                 </button>
               )}
               {modalMode === 'modify' && (

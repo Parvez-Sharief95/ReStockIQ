@@ -337,6 +337,7 @@ class ReorderRequestRead(ReorderRequestBase):
     id: UUID
     idempotency_key: str
     status: RequestStatus
+    user_id: UUID | None = Field(None, description="Owner of the request matching auth.uid()")
     created_at: datetime
     updated_at: datetime
 

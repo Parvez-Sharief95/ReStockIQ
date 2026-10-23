@@ -31,44 +31,137 @@ import {
   TestRun,
   VerificationResult,
 } from '../types';
-import { apiClient, ApiError } from './apiClient';
+import { apiClient, ApiError, setAuthTokenProvider } from './apiClient';
 
 export { apiClient, ApiError };
 
+import {
+  isSupabaseConfigured,
+  getSupabaseSession,
+  onSupabaseAuthStateChange,
+  signInWithEmail,
+  signUpWithEmail,
+  signOutUser,
+} from './supabaseClient';
+import { AuthUser } from '../types';
+
+export { isSupabaseConfigured, signInWithEmail, signUpWithEmail, signOutUser };
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Demo Users
+// Demo Users & Authenticated Session
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface DemoUser {
-  id: string;
-  email: string;
-  name: string;
-  role: 'planner' | 'approver' | 'auditor';
-}
+export type DemoUser = AuthUser;
 
-export const DEMO_USERS: DemoUser[] = [
+export const DEMO_USERS: AuthUser[] = [
   {
     id: '00000000-0000-0000-0000-000000000001',
     email: 'demo-planner@inventory.local',
     name: 'Sarah Connor (Planner)',
     role: 'planner',
+    is_demo: true,
   },
   {
     id: '00000000-0000-0000-0000-000000000002',
     email: 'demo-approver@inventory.local',
     name: 'Marcus Vance (Approver)',
     role: 'approver',
+    is_demo: true,
   },
 ];
 
-let currentUser: DemoUser = DEMO_USERS[0];
+let currentSessionToken: string | null = null;
+let currentUser: AuthUser = { ...DEMO_USERS[0], is_demo: true };
 
-export function getCurrentUser(): DemoUser {
+type UserChangeListener = (user: AuthUser, token: string | null) => void;
+const userChangeListeners: Set<UserChangeListener> = new Set();
+
+export function subscribeToUserChanges(listener: UserChangeListener): () => void {
+  userChangeListeners.add(listener);
+  listener(currentUser, currentSessionToken);
+  return () => {
+    userChangeListeners.delete(listener);
+  };
+}
+
+function notifyUserListeners(): void {
+  userChangeListeners.forEach((fn) => {
+    try {
+      fn(currentUser, currentSessionToken);
+    } catch (e) {
+      console.error('Error in user change listener:', e);
+    }
+  });
+}
+
+// Initialize Supabase Auth listener if configured
+if (isSupabaseConfigured()) {
+  getSupabaseSession().then((session) => {
+    if (session) {
+      currentSessionToken = session.access_token;
+      const u = session.user;
+      const role =
+        (u.app_metadata?.role as 'planner' | 'approver' | 'auditor' | 'admin') ||
+        (u.user_metadata?.role as 'planner' | 'approver' | 'auditor' | 'admin') ||
+        'planner';
+      currentUser = {
+        id: u.id,
+        email: u.email || '',
+        name: (u.user_metadata?.name as string) || u.email || 'Supabase User',
+        role,
+        is_demo: false,
+      };
+      notifyUserListeners();
+    }
+  });
+
+  onSupabaseAuthStateChange((session) => {
+    if (session) {
+      currentSessionToken = session.access_token;
+      const u = session.user;
+      const role =
+        (u.app_metadata?.role as 'planner' | 'approver' | 'auditor' | 'admin') ||
+        (u.user_metadata?.role as 'planner' | 'approver' | 'auditor' | 'admin') ||
+        'planner';
+      currentUser = {
+        id: u.id,
+        email: u.email || '',
+        name: (u.user_metadata?.name as string) || u.email || 'Supabase User',
+        role,
+        is_demo: false,
+      };
+    } else {
+      currentSessionToken = null;
+      currentUser = { ...DEMO_USERS[0], is_demo: true };
+    }
+    notifyUserListeners();
+  });
+}
+
+// Register dynamic auth token provider with apiClient
+setAuthTokenProvider(() => {
+  if (currentSessionToken) {
+    return currentSessionToken;
+  }
+  if (currentUser.role === 'approver') return 'demo-approver-token';
+  if (currentUser.role === 'planner') return 'demo-planner-token';
+  return 'demo-auditor-token';
+});
+
+export function getCurrentUser(): AuthUser {
   return currentUser;
 }
 
-export function setCurrentUser(user: DemoUser): void {
+export function setCurrentUser(user: AuthUser): void {
   currentUser = user;
+  if (user.is_demo) {
+    currentSessionToken = null;
+  }
+  notifyUserListeners();
+}
+
+export function getSessionToken(): string | null {
+  return currentSessionToken;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -759,7 +852,7 @@ class DataServiceStore {
     const allPassed = skuMatch && qtyMatch && packSizeCheck && duplicateCheck;
     const now = new Date().toISOString();
 
-    let evidenceText = `Independent Verification Report:
+    const evidenceText = `Independent Verification Report:
 - SKU match: ${skuMatch ? 'PASS' : `FAIL (Expected ${req.sku}, received ${actualParams.actualSku})`}
 - Quantity match: ${qtyMatch ? 'PASS' : `FAIL (Expected ${req.proposed_quantity}, received ${actualParams.actualQuantity})`}
 - Pack size check: ${packSizeCheck ? 'PASS' : `FAIL (Violates pack size multiple of ${req.pack_size})`}
@@ -990,7 +1083,6 @@ class DataServiceStore {
       action: action,
       target_version_number: targetVersionNumber,
       notes: notes,
-      approver_id: currentUser.id,
     });
     this.requests.set(res.request.id, res.request);
     return res;

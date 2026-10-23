@@ -6,7 +6,7 @@ export const SyntheticBanner: React.FC = () => {
       <div className="synthetic-banner-inner">
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
           <span className="synthetic-badge-pill">
-            <span style={{ fontSize: '0.85rem' }}>🧪</span> Synthetic Data Mode
+            Synthetic Data Mode
           </span>
           <span>
             Operating against approved mock source adapters. Real procurement and live supplier order endpoints are completely isolated.

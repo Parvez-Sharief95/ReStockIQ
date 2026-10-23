@@ -1,6 +1,5 @@
-"""
-analyses.py — Reorder Analysis Endpoints
-Phase 8 Implementation
+"""analyses.py — Reorder Analysis Endpoints
+Phase 8 & 9 Implementation
 """
 from __future__ import annotations
 
@@ -10,7 +9,7 @@ from typing import Any
 from uuid import UUID
 import uuid
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from backend.app.schemas.models import (
@@ -19,12 +18,13 @@ from backend.app.schemas.models import (
     ReorderAnalysisRead,
 )
 from backend.app.services.agent_orchestrator import make_json_safe
-from backend.app.services.backend_store import get_backend_store
+from backend.app.services.auth import AuthenticatedUser, get_current_user_optional
 from backend.app.services.calculation_engine import (
     CALCULATION_ENGINE_VERSION,
     build_structured_explanation,
     evaluate_reorder,
 )
+from backend.app.services.repository import RepositoryManager, get_repository_manager
 from backend.app.services.source_adapter import (
     RetrievalStatus,
     retrieve_reorder_context,
@@ -41,17 +41,19 @@ class EvaluateAnalysisRequest(BaseModel):
 
 
 @router.post("/evaluate", summary="Run deterministic reorder evaluation for SKU")
-async def evaluate_sku_analysis(req: EvaluateAnalysisRequest) -> dict[str, Any]:
+async def evaluate_sku_analysis(
+    req: EvaluateAnalysisRequest,
+    repo: RepositoryManager = Depends(get_repository_manager),
+    current_user: AuthenticatedUser | None = Depends(get_current_user_optional),
+) -> dict[str, Any]:
     """Execute complete deterministic reorder decision evaluation for a SKU."""
-    store = get_backend_store()
     sku_clean = req.sku.strip().upper()
 
     # 1. Source retrieval with evidence capture
-    ctx = retrieve_reorder_context(sku=sku_clean, adapter=store.adapter)
+    ctx = retrieve_reorder_context(sku=sku_clean, adapter=repo.adapter)
 
     # 2. Safety guard: Do not invent missing or failed data
     if not ctx.is_valid and ctx.status == RetrievalStatus.FAILED:
-        # Source retrieval explicitly failed
         status_reason = f"Source retrieval failed: {'; '.join(ctx.issues)}"
     else:
         status_reason = None
@@ -73,7 +75,7 @@ async def evaluate_sku_analysis(req: EvaluateAnalysisRequest) -> dict[str, Any]:
         budget_available=req.budget_available,
         baseline_unit_price=req.baseline_unit_price,
         source_evidence_ids=ctx.evidence_ids,
-        known_source_evidence_ids=set(store.adapter.evidence_store.keys()),
+        known_source_evidence_ids=set(repo.adapter.evidence_store.keys()),
         as_of_date=today,
         snapshot_at=now,
     )
@@ -103,7 +105,8 @@ async def evaluate_sku_analysis(req: EvaluateAnalysisRequest) -> dict[str, Any]:
         created_at=now,
     )
 
-    store.analyses[analysis_id] = analysis_read
+    u_id = current_user.id if current_user else UUID("00000000-0000-0000-0000-000000000001")
+    repo.analyses.save_analysis(analysis_read, user_id=u_id)
 
     return make_json_safe({
         "analysis": analysis_read,
@@ -112,8 +115,8 @@ async def evaluate_sku_analysis(req: EvaluateAnalysisRequest) -> dict[str, Any]:
         "price_hike_detected": res.price_hike_detected,
         "price_change_pct": res.price_change_pct,
         "evidence_ids": ctx.evidence_ids,
-        "is_synthetic": True,
-        "source_type": "mock_source",
+        "is_synthetic": not repo.is_persistent,
+        "source_type": "database" if repo.is_persistent else "mock_source",
     })
 
 
@@ -121,31 +124,36 @@ async def evaluate_sku_analysis(req: EvaluateAnalysisRequest) -> dict[str, Any]:
 async def evaluate_sku_get(
     sku: str,
     budget: float | None = Query(None, description="Available budget"),
+    repo: RepositoryManager = Depends(get_repository_manager),
+    current_user: AuthenticatedUser | None = Depends(get_current_user_optional),
 ) -> dict[str, Any]:
     """Convenience endpoint to evaluate reorder for SKU via GET."""
     req = EvaluateAnalysisRequest(
         sku=sku,
         budget_available=budget,
     )
-    return await evaluate_sku_analysis(req)
+    return await evaluate_sku_analysis(req, repo=repo, current_user=current_user)
 
 
 @router.get("", summary="List recent reorder analyses")
-async def list_analyses() -> dict[str, Any]:
+async def list_analyses(
+    repo: RepositoryManager = Depends(get_repository_manager),
+) -> dict[str, Any]:
     """Retrieve all stored reorder analyses."""
-    store = get_backend_store()
-    items = list(store.analyses.values())
+    items = repo.analyses.list_analyses()
     return make_json_safe({
         "items": items,
         "total": len(items),
-        "source_type": "mock_source",
+        "source_type": "database" if repo.is_persistent else "mock_source",
     })
 
 
 @router.get("/{analysis_id}", summary="Get analysis details by ID")
-async def get_analysis_by_id(analysis_id: str) -> dict[str, Any]:
+async def get_analysis_by_id(
+    analysis_id: str,
+    repo: RepositoryManager = Depends(get_repository_manager),
+) -> dict[str, Any]:
     """Retrieve a single reorder analysis by UUID."""
-    store = get_backend_store()
     try:
         a_id = UUID(analysis_id)
     except ValueError:
@@ -154,14 +162,14 @@ async def get_analysis_by_id(analysis_id: str) -> dict[str, Any]:
             detail=f"Invalid UUID format: '{analysis_id}'",
         )
 
-    if a_id not in store.analyses:
+    analysis = repo.analyses.get_analysis(a_id)
+    if not analysis:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Analysis '{analysis_id}' not found.",
         )
 
-    analysis = store.analyses[a_id]
     return make_json_safe({
         "analysis": analysis,
-        "source_type": "mock_source",
+        "source_type": "database" if repo.is_persistent else "mock_source",
     })

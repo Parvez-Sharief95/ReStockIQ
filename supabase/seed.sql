@@ -6,19 +6,28 @@
 --   1. Run supabase/schema.sql first.
 --   2. Execute this script via the Supabase SQL Editor (uses postgres role,
 --      which bypasses RLS) OR via psql with service-role credentials.
---   3. The demo user UUID below is fixed for reproducibility.  Do NOT commit
---      real user UUIDs or credentials to version control.
---
--- DEMO USER:
---   Email : demo@example.com
---   UUID  : 00000000-0000-0000-0000-000000000001
---   This is a synthetic identity for local/test use.  In production, create
---   a real user via Supabase Auth and replace the UUID below.
+--   3. The demo owner UUID (00000000-0000-0000-0000-000000000001) below seeds
+--      the SHARED CATALOG only — products, supplier terms, analyses visible to
+--      all authenticated users. Real registered users get their own request data
+--      via seed_demo_data_for_user() (see schema.sql / SETUP.md).
 -- ═══════════════════════════════════════════════════════════════════════════════
 
--- ── 0. Demo user in auth.users ────────────────────────────────────────────────
--- NOTE: The auth schema is only writeable from the postgres/service role.
--- This insert will be silently skipped if the user already exists.
+-- ── 0. Shared Catalog Owner row in auth.users ─────────────────────────────────
+--
+-- ⚠️  IMPORTANT: This row creates the shared demo catalog owner ONLY.
+--     This row is NOT a real login account.  Direct auth.users insertion
+--     CANNOT be used to create real registered accounts because:
+--       - GoTrue requires a matching row in auth.identities with a bcrypt
+--         password hash; inserting without it breaks email/password login.
+--       - The NULL encrypted_password means this row cannot authenticate.
+--
+--  For real demo users (with working login), use:
+--       SELECT public.seed_demo_data_for_user('<USER-UUID>');
+--    after the user registers normally via the application sign-up page.
+--    Their UUID is shown in Supabase Dashboard → Authentication → Users.
+--
+--  For approver/admin role assignment to a real user, see SETUP.md.
+-- ─────────────────────────────────────────────────────────────────────────────
 INSERT INTO auth.users (
   id, instance_id, aud, role, email,
   encrypted_password, email_confirmed_at,
@@ -31,18 +40,17 @@ VALUES (
   '00000000-0000-0000-0000-000000000001',
   '00000000-0000-0000-0000-000000000000',
   'authenticated', 'authenticated',
-  'demo@example.com',
-  NULL,                                       -- D4 fix: NULL is valid for GoTrue passwordless/demo accounts;
-                                              -- empty string '' can cause Supabase Auth internal failures.
+  'demo-catalog-owner@internal.local',        -- Not a real login address
+  NULL,                                       -- No password — not intended for auth login
   now(), now(), now(),
   '', '', '', '',
   '{"provider":"email","providers":["email"]}'::jsonb,
-  '{"name":"Demo User"}'::jsonb,
+  '{"name":"Demo Catalog Owner (seed only)"}'::jsonb,
   false
 )
 ON CONFLICT (id) DO NOTHING;
 
--- Convenience: constant for the demo user UUID
+-- Convenience: constant for the shared catalog owner UUID
 DO $$ BEGIN
   PERFORM set_config('seed.demo_user_id',
     '00000000-0000-0000-0000-000000000001', true);

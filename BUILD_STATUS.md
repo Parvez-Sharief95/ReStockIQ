@@ -16,8 +16,8 @@
 | 5 | Reorder Requests, Approval, Idempotency & Verification | ✅ Complete | See Phase 5 report (68 unit tests passed) |
 | 6 | Gemini Tool Use & Agent Orchestration | ✅ Complete | See Phase 6 report (81 unit tests passed) |
 | 7 | React Frontend & User Experience | ✅ Complete | See Phase 7 report (9 Vitest tests passed; bundle built) |
-| 8 | API Integration & TC1–TC4 Acceptance Tests | ✅ Complete | See Phase 8 report (104 pytest + 15 Vitest passed) |
-| 9 | Vercel & Free-Tier Deployment Review | ⏳ Not started | — |
+| 8 | API Integration & Hardening (ReStockIQ) | ✅ Complete + hardened | See Phase 8 report (111 pytest + 16 Vitest passed) |
+| 9 | Vercel & Free-Tier Deployment Review | 🔍 Review Complete | Frontend PASS; Backend BLOCKED on in-memory persistence |
 | 10 | Documentation, Demo & Final Audit | ⏳ Not started | — |
 
 ---
@@ -392,31 +392,97 @@ All scenarios verified end-to-end from source retrieval through analysis, reques
 - **Outcome Verification:** Separate verification stage detects SKU mismatch, quantity mismatch, pack size violation, and duplicate PO references, transitioning request to `failed` with granular evidence.
 - **Simulated Execution Default:** Real procurement endpoints are never contacted; mock references (`SIM-PO-...`) emitted.
 - **Secret Protection:** Source control, API responses, and frontend bundles verified free of secret keys.
+- **Backend-Enforced Authentication & Role Authorization:** Implemented in `backend/app/services/auth.py` and `backend/app/routers/approvals.py`. Caller-supplied `approver_id` removed and forbidden via `extra="forbid"`. Approver identity bound strictly to authenticated Bearer token (`current_user.id`). Requires `approver` role (401 on unauthenticated, 403 on planner role, 422 on caller-injected `approver_id`).
 
 ### Test Suite Execution
-- **Backend Pytest Suite:** 104 passed in 0.98s (`backend/.venv/Scripts/pytest`)
+- **Backend Pytest Suite:** 118 passed in 2.78s (`backend/.venv/Scripts/pytest`)
+  - `tests/backend/test_persistence_and_auth.py`: 7 passed (registration boundaries, safe role assignment, invalid/expired token rejection, production in-memory fallback prohibition, JWT forwarding for RLS, duplicate retries, role authorization)
   - `tests/backend/test_acceptance_scenarios.py`: 6 passed (TC1, TC2, TC3, TC4, partial open order, scenario runner endpoints)
   - `tests/backend/test_api_integration.py`: 8 passed (all REST endpoints and error shapes)
-  - `tests/backend/test_safety_and_failures.py`: 9 passed (gating, invalidation, anti-invention, secret protection)
+  - `tests/backend/test_safety_and_failures.py`: 15 passed (gating, invalidation, anti-invention, secret protection, 401 unauthenticated, 403 forbidden roles, 422 caller-supplied ID rejection, 200 approver binding, production demo token prohibition)
   - `tests/backend/test_agent_orchestrator.py`: 13 passed
   - `tests/backend/test_decision_engine.py`: 40 passed
   - `tests/backend/test_request_service.py`: 14 passed
   - `tests/backend/test_source_adapter.py`: 12 passed
-  - `tests/backend/test_scaffold.py`: 2 passed
-- **Frontend Vitest Suite:** 15 passed in 42ms (`npm test -- --run` in `frontend/`)
+  - `tests/backend/test_scaffold.py`: 3 passed (including Pydantic Settings VITE_* filtering and typo protection)
+- **Frontend Vitest Suite:** 22 passed in 54ms (`npm test -- --run` in `frontend/`)
+  - `src/__tests__/supabaseAuth.test.ts`: 6 passed (unconfigured detection, sign-up/sign-in boundaries, safe role default, session token handling)
   - `src/__tests__/dataService.test.ts`: 9 passed
-  - `src/__tests__/apiClient.test.ts`: 6 passed
-- **Frontend Production Bundle:** `npm run build` compiled cleanly in 1.05s (zero TypeScript or bundle errors).
+  - `src/__tests__/apiClient.test.ts`: 7 passed (including dynamic auth token injection)
+- **Frontend Production Bundle:** `npm run build` compiled cleanly in 2.23s (zero TypeScript or bundle errors).
 
 ### Distinguishing Mocked Tests vs Live Supabase
-- All 104 backend tests and 15 frontend tests execute against deterministic synthetic adapters and in-memory mock repositories.
+- All 118 backend tests and 22 frontend tests execute against deterministic synthetic adapters and in-memory mock repositories.
 - Zero live Supabase or external network dependencies are required or claimed in test runs.
 - Synthetic provenance is maintained on all records (`source_type = "mock_source"`, `is_synthetic = True`).
 
 ---
 
+## Real Supabase Authentication & Persistent Storage Report
+
+### 1. Real Authentication Architecture
+- **Browser Supabase Integration:** Implemented in [`frontend/src/services/supabaseClient.ts`](frontend/src/services/supabaseClient.ts) and [`frontend/src/pages/AuthPage.tsx`](frontend/src/pages/AuthPage.tsx) with email/password sign-up, sign-in, sign-out, session restoration, and loading/error states.
+- **Safe Role Governance:** Newly self-registered users are assigned the standard `planner` role. The `approver` role is strictly segregated and cannot be self-claimed via `user_metadata`; it must be elevated via `auth.users.raw_app_meta_data` by an administrator.
+- **Token Forwarding:** When a verified Supabase session exists, [`frontend/src/services/dataService.ts`](frontend/src/services/dataService.ts) and [`frontend/src/services/apiClient.ts`](frontend/src/services/apiClient.ts) inject the live JWT `Bearer` token into all FastAPI requests.
+- **Backend Verification:** In [`backend/app/services/auth.py`](backend/app/services/auth.py), JWTs are verified against Supabase Auth. Demo tokens are strictly forbidden in production (HTTP 401).
+
+### 2. Persistent Storage Architecture & Repository Pattern
+- **Repository Abstraction:** Implemented in [`backend/app/services/repository.py`](backend/app/services/repository.py) with interfaces `IInventoryRepository`, `IAnalysisRepository`, `IReorderRepository`, and `ITestRunRepository`.
+- **FastAPI Router Dependency Injection:** Routers (`inventory.py`, `analyses.py`, `requests.py`, `approvals.py`, `test_runs.py`, `dashboard.py`) now inject `RepositoryManager = Depends(get_repository_manager)` instead of accessing singleton stores directly.
+- **User-Scoped JWT Forwarding for RLS:** In `SupabaseRepositoryManager`, queries set `client.postgrest.auth(user_token)` so PostgreSQL evaluates `auth.uid()` for all Row Level Security policies.
+- **Production Persistence Guard:** In production mode (`APP_ENV=production`), silent fallback to in-memory store is strictly prohibited. If Supabase is unavailable, requests fail visibly with HTTP 503.
+
+### 3. Database Safety & Schema / RLS Mismatch Report
+> **CRITICAL:** In accordance with instructions, zero SQL migrations, seed scripts, or database writes have been executed against the live Supabase project.
+
+#### Identified Schema & RLS Policy Mismatches:
+1. **Approval RLS Policy (`approvals` table):**
+   - *Current Policy:* `approvals_insert_own` checks `WITH CHECK (user_id = auth.uid())`.
+   - *Issue:* In a role-segregated workflow where Planner A creates a request and Approver B approves it, Approver B's `auth.uid()` differs from the request owner's `user_id`. An insert by Approver B will fail RLS.
+   - *Recommended Policy Update:*
+     ```sql
+     DROP POLICY IF EXISTS "approvals_insert_own" ON approvals;
+     DROP POLICY IF EXISTS "approvals_select_own" ON approvals;
+     CREATE POLICY "approvals_insert_approver" ON approvals FOR INSERT WITH CHECK (approver_id = auth.uid() OR user_id = auth.uid());
+     CREATE POLICY "approvals_select_participants" ON approvals FOR SELECT USING (user_id = auth.uid() OR approver_id = auth.uid());
+     ```
+2. **Request Status Update RLS Policy (`reorder_requests` table):**
+   - *Current Policy:* `requests_update_own` checks `USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid())`.
+   - *Issue:* When Approver B approves Planner A's request, updating the request status from `pending_approval` to `approved` fails under ownership RLS if executed directly with Approver B's user token.
+   - *Recommended Policy Update:*
+     ```sql
+     CREATE POLICY "requests_update_approver" ON reorder_requests FOR UPDATE
+       USING (user_id = auth.uid() OR (auth.jwt() -> 'app_metadata' ->> 'role') IN ('approver', 'admin'))
+       WITH CHECK (user_id = auth.uid() OR (auth.jwt() -> 'app_metadata' ->> 'role') IN ('approver', 'admin'));
+     ```
+3. **Audit Events Actor RLS Policy (`audit_events` table):**
+   - *Current Policy:* `audit_insert_own` checks `WITH CHECK (user_id = auth.uid())`.
+   - *Issue:* When Approver B acts on Planner A's request, logging the approval event with `actor_id = Approver B` and `user_id = Planner A` fails RLS.
+   - *Recommended Policy Update:*
+     ```sql
+     CREATE POLICY "audit_insert_actor" ON audit_events FOR INSERT WITH CHECK (actor_id = auth.uid() OR user_id = auth.uid());
+     ```
+
+### 4. Supabase Security & RLS Policy Hardening Audit (Phase 9 Audit)
+- **RLS Policy Audit:** Completed comprehensive audit of all 12 tables. Policies updated with safe, idempotent `DROP POLICY IF EXISTS` in `supabase/schema.sql`.
+  - `reorder_requests`: Planners can only insert and update requests in `draft` or `pending_approval` state. Self-approval is mathematically blocked by RLS `WITH CHECK (status IN ('draft', 'pending_approval'))`. Approvers can only update status to `approved` or `rejected`. Submissions require status `approved`.
+  - `approvals`: Inserts enforce `approver_id = auth.uid()`, require role `approver` or `admin` in `app_metadata`, verify that the referenced request exists, belongs to the request owner, is currently `pending_approval`, and matches `request_version_id`.
+  - `audit_events`: Enforced `actor_id = auth.uid()` to prevent audit spoofing.
+  - Multi-tenant isolation: `tenant_id` column and index added to `products`, `reorder_requests`, `approvals`, and `audit_events`. Approver access scoped via `(tenant_id IS NULL OR tenant_id::text = (auth.jwt() -> 'app_metadata' ->> 'tenant_id'))`.
+- **API Persistence Routing:** In-memory persistence paths eradicated across all production endpoints, including `/api/test-runs` which now persists via `repo.requests`.
+- **Backend JWT Verification:** Implemented in `backend/app/services/auth.py`. Verifies signature, expiration (`exp`), audience (`aud == 'authenticated'`), and issuer (`iss == settings.supabase_url`). Supports local cryptographic verification via `SUPABASE_JWT_SECRET`. Privileged roles strictly derived from `app_metadata`; untrusted `user_metadata` claims downgraded to `planner`.
+- **Approval Binding & Concurrency:** Optimistic concurrency locking enforced on request status updates (`.eq("status", ...)`). Direct caller-supplied `approver_id` forbidden via Pydantic (`extra="forbid"`).
+- **Test Results:**
+  - Backend: 126 passed (0 failures)
+  - Frontend: 22 passed across 3 test files (0 failures)
+  - Production build: Succeeded in 2.16s (0 errors)
+
+---
+
 ## Known Issues
-_None._
+- Live database deployment requires running `supabase/schema.sql` with the idempotent RLS policies detailed above and creating verified Supabase users.
+- Live deployment blocked awaiting user approval.
 
 ## Next Approved Phase
-_Phase 9 — Vercel & Free-Tier Deployment Review (awaiting explicit user approval)._
+_Awaiting explicit user approval before running live database migrations or deploying._
+

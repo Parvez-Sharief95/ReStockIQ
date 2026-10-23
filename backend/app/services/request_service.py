@@ -187,6 +187,7 @@ class RequestService:
             currency=currency,
             calculation_version=calculation_version,
             status=initial_status,
+            user_id=UUID(user_id) if isinstance(user_id, str) else user_id,
             created_at=now,
             updated_at=now,
         )

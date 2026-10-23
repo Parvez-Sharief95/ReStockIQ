@@ -1,23 +1,23 @@
-# Inventory Reorder Planner
+# ReStockIQ — Autonomous Inventory Reorder Planner
 
 > **Hackathon Project — Agentic AI Hackathon 2026**
 
-Predict stockouts and prepare explainable purchase requests without over-ordering.
+Predict stockouts and prepare explainable purchase requests with deterministic precision, human governance, and zero over-ordering.
 
 ---
 
 ## Purpose
 
-Collect inventory, sales history, lead time and budget data; forecast demand during the lead-time window; subtract eligible incoming stock; prepare reorder requests with mandatory human approval gates; simulate safe order execution; independently verify results; and surface stockout risks in an accessible business dashboard.
+ReStockIQ collects inventory, sales history, lead time and budget data; forecasts demand during the lead-time window; subtracts eligible incoming stock; prepares reorder requests with mandatory human approval gates; simulates safe order execution; independently verifies results; and surfaces stockout risks in an accessible business dashboard.
 
 ---
 
 ## Architecture
 
 ```
-frontend/          React 18 + Vite 5 + TypeScript  →  Vercel (Hobby target)
-backend/           Python 3.13 + FastAPI           →  Free-tier host / local demo
-supabase/          PostgreSQL 12-table schema      →  Supabase Free tier (optional live sync)
+frontend/          React 18 + Vite 5 + TypeScript (ReStockIQ UI) → Vercel (Hobby target)
+backend/           Python 3.13 + FastAPI                         → Free-tier host / local demo
+supabase/          PostgreSQL 12-table schema                    → Supabase Free tier (optional live sync)
 ```
 
 **AI Strategy:** Gemini API (free tier) — bounded tool calling for workflow orchestration and human-auditable explanations only. **All arithmetic calculations are strictly pure, deterministic Python with Decimal precision.**
@@ -69,33 +69,34 @@ npm run dev
 
 ## Testing & Verification
 
-### Run Backend Test Suite (104 Tests)
+### Run Backend Test Suite (118 Tests)
 
 ```bash
 # From workspace root
 backend\.venv\Scripts\pytest
 ```
 
-- **Test Suite Result:** 104 passed in 0.98s
+- **Test Suite Result:** 118 passed in 2.78s
 - **Coverage:**
+  - `test_persistence_and_auth.py`: Safe role-assignment boundaries, live Supabase JWT verification, invalid/expired token rejection (401), production in-memory fallback prohibition (503), user-scoped JWT forwarding to PostgREST for RLS, and persistent repository idempotency
   - `test_acceptance_scenarios.py`: TC1, TC2, TC3, TC4 end-to-end scenarios + partial open order case + test-run runner endpoints
   - `test_api_integration.py`: Complete REST endpoints, error serialization, and Rule S2 proposal invalidation
-  - `test_safety_and_failures.py`: Human approval gating, version integrity, anti-invention guard on failed source data, duplicate retries, secrets exclusion
+  - `test_safety_and_failures.py`: Human approval gating, version integrity, anti-invention guard on failed source data, duplicate retries, secrets exclusion, 401 unauthenticated, 403 forbidden roles, 422 caller-supplied ID rejection, 200 approver identity binding, production demo token disabling
   - `test_decision_engine.py`: Pure arithmetic rules C1–C10, pack-size rounding, safety stock defaulting, budget checking
   - `test_source_adapter.py`: Mock source adapter, evidence provenance capture, staleness (>7d), and conflict detection
   - `test_request_service.py`: Request lifecycle, version snapshots, simulated order execution, outcome verification
   - `test_agent_orchestrator.py`: Bounded Gemini function calling, deterministic offline fallback, prompt injection defense
-  - `test_scaffold.py`: Scaffold and configuration imports
+  - `test_scaffold.py`: Scaffold, Pydantic settings frontend variable filtering, and misspelled key validation
 
-### Run Frontend Vitest Suite (15 Tests)
+### Run Frontend Vitest Suite (22 Tests)
 
 ```bash
 cd frontend
 npm test -- --run
 ```
 
-- **Test Suite Result:** 15 passed in 42ms
-- **Coverage:** Client data service calculation rules, approval invalidation, outcome verification, and typed `apiClient` error parsing.
+- **Test Suite Result:** 22 passed in 54ms
+- **Coverage:** Supabase Auth client operations, safe default role assignment, session restoration, client data service calculation rules, approval invalidation, outcome verification, typed `apiClient` error parsing, and dynamic auth header injection.
 
 ### Run Frontend Typecheck & Build
 
@@ -104,7 +105,7 @@ cd frontend
 npm run build
 ```
 
-- **Build Result:** Clean production bundle built with `tsc && vite build` in 1.05s (zero TypeScript or bundling errors).
+- **Build Result:** Clean production bundle built with `tsc && vite build` in 2.23s (zero TypeScript or bundling errors).
 
 ---
 

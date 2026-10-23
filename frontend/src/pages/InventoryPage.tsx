@@ -43,7 +43,7 @@ export const InventoryPage: React.FC = () => {
         </div>
         <div style={{ display: 'flex', gap: '0.75rem' }}>
           <Link to="/test-scenarios" className="btn btn-outline">
-            <span>🧪</span> Run Test Cases (TC1–TC4)
+            Run Test Cases (TC1–TC4)
           </Link>
         </div>
       </div>
@@ -62,7 +62,6 @@ export const InventoryPage: React.FC = () => {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1, minWidth: '280px' }}>
-          <span style={{ fontSize: '1.1rem' }}>🔍</span>
           <input
             type="text"
             className="form-input"

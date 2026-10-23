@@ -115,7 +115,7 @@ export const ScenarioRunnerPage: React.FC = () => {
     <div className="fade-in">
       <div className="editorial-header">
         <div className="editorial-header-text">
-          <h1>Deterministic Test Scenario Harness (TC1–TC4)</h1>
+          <h1>ReStockIQ Acceptance Test Harness (TC1–TC4)</h1>
           <p>
             Interactive execution of official hackathon acceptance scenarios through the FastAPI backend and deterministic Python calculation engine.
           </p>
@@ -132,11 +132,11 @@ export const ScenarioRunnerPage: React.FC = () => {
                 fontSize: '0.75rem',
               }}
             >
-              {backendExecution ? '⚡ FastAPI REST Engine' : '🧪 Client Deterministic Engine'}
+              {backendExecution ? 'FastAPI REST Engine' : 'Client Deterministic Engine'}
             </span>
           )}
           <button onClick={handleRunAll} disabled={isRunningAll} className="btn btn-accent">
-            <span>⚡</span> {isRunningAll ? 'Running Scenarios...' : 'Run All Scenarios'}
+            {isRunningAll ? 'Running Scenarios...' : 'Run All Scenarios'}
           </button>
         </div>
       </div>
@@ -151,7 +151,7 @@ export const ScenarioRunnerPage: React.FC = () => {
             padding: '1rem',
           }}
         >
-          <div style={{ color: 'var(--color-danger)', fontWeight: 700 }}>⚠️ {errorMessage}</div>
+          <div style={{ color: 'var(--color-danger)', fontWeight: 700 }}>{errorMessage}</div>
         </div>
       )}
 
@@ -191,7 +191,7 @@ export const ScenarioRunnerPage: React.FC = () => {
                       className={`badge ${result.status === 'pass' ? 'badge-success' : 'badge-danger'}`}
                       style={{ fontSize: '0.8rem', padding: '0.3rem 0.8rem' }}
                     >
-                      {result.status === 'pass' ? '✅ PASSED' : '❌ FAILED'}
+                      {result.status === 'pass' ? 'PASSED' : 'FAILED'}
                     </span>
                   )}
                   <button

@@ -2,7 +2,9 @@
 .env
 .env.local
 .env.*.local
+frontend/.env*
 *.secret
+.vercel/
 
 # ── Python ─────────────────────────────────────────────────────────────────────
 __pycache__/

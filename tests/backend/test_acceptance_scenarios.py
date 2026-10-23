@@ -93,6 +93,7 @@ def test_tc1_acceptance_end_to_end(api_client: TestClient) -> None:
             "target_version_number": 1,
             "notes": "TC1 approved by authorized purchaser",
         },
+        headers={"Authorization": "Bearer demo-approver-token"},
     )
     assert appr_resp.status_code == 200
     assert appr_resp.json()["request"]["status"] == "approved"
@@ -178,6 +179,7 @@ def test_tc2_acceptance_case_rounding(api_client: TestClient) -> None:
     api_client.post(
         "/api/approvals",
         json={"request_id": req_id, "action": "approved", "target_version_number": 1},
+        headers={"Authorization": "Bearer demo-approver-token"},
     )
     sub_resp = api_client.post(f"/api/requests/{req_id}/submit", json={})
     assert sub_resp.status_code == 200
@@ -316,6 +318,7 @@ def test_tc4_acceptance_price_increase_budget_review(api_client: TestClient) -> 
             "target_version_number": 1,
             "notes": "Budget increase of $32.00 authorized due to essential component price rise.",
         },
+        headers={"Authorization": "Bearer demo-approver-token"},
     )
     assert appr_resp.status_code == 200
     assert appr_resp.json()["request"]["status"] == "approved"

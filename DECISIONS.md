@@ -55,6 +55,16 @@
 | A38 | **Anti-Invention and Evidence Integrity Enforcement:** If source evidence is failed or insufficient, request creation is blocked (400 Bad Request). Failed source retrievals never default to zero stock or zero open orders. | Phase 8 |
 | A39 | **Frontend Typed API Client & Hybrid Execution:** `frontend/src/services/apiClient.ts` provides typed async methods with standard `ApiError` shapes (`code`, `status`, `message`, `details`). `dataService.ts` and `ScenarioRunnerPage.tsx` execute through the live FastAPI backend, while providing deterministic client fallback if the server is offline, visibly displaying connection state and never silently swallowing errors. | Phase 8 |
 | A40 | **Acceptance Scenario Test Automation:** All four official acceptance scenarios (TC1, TC2, TC3, TC4) and the partial open order case are automated end-to-end through `POST /api/test-runs/run/{case_id}` and `tests/backend/test_acceptance_scenarios.py`. | Phase 8 |
+| A41 | **Approval Identity & Role Authorization Enforcement:** Implemented in `backend/app/services/auth.py` and `backend/app/routers/approvals.py`. Caller-supplied `approver_id` removed from `RecordApprovalPayload` and forbidden via Pydantic `extra="forbid"`. Approver identity is bound strictly from the authenticated Bearer token (`current_user.id`). Role-based authorization (`require_approver`) restricts approvals to authenticated users with `'approver'` or `'admin'` roles, returning HTTP 401 for unauthenticated calls and HTTP 403 for unauthorized roles (e.g., planner). | Phase 8 Hardening |
+| A42 | **ReStockIQ Brand Identity & Lightweight SVG Asset:** Frontend branded as ReStockIQ across browser title, navigation header, session status, and operations command view. Custom SVG logo implemented (`ReStockIQLogo.tsx` and `favicon.svg`) with 3D isometric inventory box in Aubergine/Indigo/Blue and Marigold restocking indicator. Existing palette (Ice Silver `#DDE3E8`, Deep Aubergine `#3A0F34`, Marigold `#EAAA00`) fully preserved. | Phase 9 Prep |
+| A43 | **Pydantic Settings Frontend Variable Isolation & Strict Extra Forbiddance:** In `backend/app/config.py`, `model_config` maintains `extra="forbid"` to catch misspelled backend environment variables (e.g. `SUPABSE_URL`). A `@model_validator(mode="before")` explicitly isolates and filters variables prefixed with `VITE_` or `vite_`, allowing a shared root `.env` for both FastAPI and Vite without masking backend configuration errors. | Phase 9 Prep |
+| A44 | **Production Demo Token Prohibition:** In `backend/app/services/auth.py`, when `app_env == "production"`, offline demo tokens (`demo-approver-token`, `demo-planner-token`, `test-user:*`) are strictly forbidden and rejected with HTTP 401 Unauthorized. Production deployment is blocked until live Supabase authentication is wired. | Phase 9 Prep |
+| A45 | **Supabase Auth Integration & Safe Role Assignment:** React login page integrated with Supabase Auth for sign-up, sign-in, sign-out, session restoration, and real JWT token forwarding. Safe role governance enforced: newly self-registered accounts default to the `planner` role; privileged `approver` or `admin` roles can only be granted via `auth.users.raw_app_meta_data` by an administrator. Self-assigned claims in `user_metadata` are safely downgraded to `planner`. | Phase 9 |
+| A46 | **Repository Abstraction & User-Scoped JWT Forwarding for RLS:** Centralized repository interfaces (`IInventoryRepository`, `IAnalysisRepository`, `IReorderRepository`, `ITestRunRepository`) implemented in `backend/app/services/repository.py`. When operating against Supabase, the authenticated user's JWT is forwarded to PostgREST via `client.postgrest.auth(user_token)` so PostgreSQL evaluates `auth.uid()` for all Row Level Security (RLS) policies. | Phase 9 |
+| A47 | **Production Persistence Guard & Strict Prohibition of In-Memory Fallback:** When `APP_ENV=production`, repository manager strictly enforces Supabase persistence. If Supabase credentials are missing or unreachable, requests fail visibly with HTTP 503 Service Unavailable; silent fallback to transient in-memory storage is strictly blocked to prevent data loss across serverless instances. | Phase 9 |
+| A48 | **RLS Policy Hardening & Tenant Isolation:** Implemented across `supabase/schema.sql`. All policies are idempotent (`DROP POLICY IF EXISTS`). Request proposals restrict planner updates to `draft` and `pending_approval`, preventing self-approval via RLS. Approvers can only update status from `pending_approval` to `approved` or `rejected`. Submissions require status `approved`. Approvals enforce caller `auth.uid() = approver_id`, request existence, current `pending_approval` state, and matching `version_id`. Audit events enforce `actor_id = auth.uid()` to eliminate actor spoofing. Optional `tenant_id` columns enforce strict multi-tenant boundary. | Phase 9 Security Audit |
+| A49 | **Comprehensive JWT Claims Verification:** Implemented in `backend/app/services/auth.py`. Validates signature (via `SUPABASE_JWT_SECRET` HS256 or Supabase API `get_user`), expiration timestamp `exp`, audience `aud == "authenticated"`, and issuer matching `SUPABASE_URL`. Untrusted user metadata cannot elevate roles; privileged roles must be configured in `app_metadata`. | Phase 9 Security Audit |
+| A50 | **Optimistic Concurrency & Elimination of In-Memory Persistence Leaks:** In `backend/app/services/repository.py`, status updates bind to current status (`.eq("status", ...)`). Consequential submission and verification operations are routed through `repo.requests` across all endpoints, including acceptance scenario runners (`/api/test-runs`), eliminating lingering in-memory leaks. | Phase 9 Security Audit |
 
 ## Env Variable Naming (Phase 2 decision)
 
@@ -63,12 +73,14 @@
 | `SUPABASE_SERVICE_ROLE_KEY` | `SUPABASE_SECRET_KEY` | Shorter; matches Supabase dashboard terminology ("secret") |
 | `VITE_SUPABASE_ANON_KEY` | `VITE_SUPABASE_PUBLISHABLE_KEY` | Explicit that this key is browser-publishable |
 
-## RLS Policy Design (Phase 2 decision)
+## RLS Policy Design & Security Architecture (Phase 9 Audit)
 
-- All 12 tables have RLS enabled.
-- Policies are ownership-based: `user_id = auth.uid()`. No policy grants unrestricted access to all authenticated users.
+- All 12 tables have RLS enabled with idempotent `DROP POLICY IF EXISTS` definitions.
+- Policies enforce ownership: `user_id = auth.uid()` for planners and tenant scoping `(tenant_id IS NULL OR tenant_id::text = (auth.jwt() -> 'app_metadata' ->> 'tenant_id'))`.
+- `reorder_requests`: Planners can only insert and update requests in `draft` or `pending_approval` status. Approver updates are segregated to status transitions (`approved` or `rejected`). Submissions require status `approved`.
+- `approvals`: Approvers can only insert approvals where `approver_id = auth.uid()`, the request exists, is in `pending_approval`, and matches `request_version_id`.
+- `audit_events`: Enforces `actor_id = auth.uid()` to prevent audit spoofing.
 - `audit_events`, `approvals`, `request_versions`, `source_evidence`, `reorder_analyses`: INSERT + SELECT only (immutable after creation).
-- `sales_history`: INSERT + SELECT + DELETE only (replaced, never mutated).
 - Append-only tables additionally have DB-level triggers (`prevent_mutation`) so even superuser queries get a guard.
 - **D3 fix:** `prevent_mutation()` checks the session GUC `app.seed_cleanup`. When set to `'true'`, the trigger allows DELETE (seed cleanup only). Application code must never set this GUC. The GUC is set and RESET within the seed script's cleanup block.
 
@@ -77,5 +89,5 @@
 | # | Question | Status |
 |---|---------|--------|
 | Q1 | Will the organizer provide a dashboard URL or API schema? | ❓ Open |
-| Q2 | Is Supabase Auth (sign-in/sign-up) required for the demo scope, or is a single demo user sufficient? | ❓ Open |
+| Q2 | Is Supabase Auth (sign-in/sign-up) required for the demo scope, or is a single demo user sufficient? | ✅ Resolved — Supabase Auth fully integrated with planner/approver segregation |
 | Q3 | What currency should be used for pricing in the seed data? | ✅ Resolved — defaulting to USD |
