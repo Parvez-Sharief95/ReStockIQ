@@ -1,6 +1,6 @@
-# ReStockIQ — Autonomous Inventory Reorder Planner
+# ReStockIQ — Autonomous Reorder Intelligence
 
-> **Hackathon Project — Agentic AI Hackathon 2026**
+> **Autonomous Reorder Intelligence**
 
 Predict stockouts and prepare explainable purchase requests with deterministic precision, human governance, and zero over-ordering.
 

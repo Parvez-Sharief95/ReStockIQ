@@ -99,10 +99,10 @@ export const AuthPage: React.FC = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', marginBottom: '0.5rem' }}>
             <ReStockIQLogo size={28} />
             <span style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--color-marigold)' }}>
-              ReStockIQ Security &amp; Access
+              ReStockIQ — Autonomous Reorder Intelligence
             </span>
           </div>
-          <h1>Identity, Governance &amp; Role Access</h1>
+          <h1>ReStockIQ Access &amp; Governance</h1>
           <p>
             Role-based access control and Supabase Auth integration. Consequential procurement approval authorities
             are strictly segregated from inventory planning.
@@ -227,7 +227,7 @@ export const AuthPage: React.FC = () => {
       {/* Real Supabase Authentication Card */}
       <div className="card-editorial" style={{ marginBottom: '1.75rem' }} id="supabase-auth-card">
         <div className="card-header-editorial">
-          <h3>Supabase Authentication</h3>
+          <h3>ReStockIQ Account Sign In</h3>
           <span className={`badge ${isConfigured ? 'badge-success' : 'badge-warning'}`}>
             {isConfigured ? 'Cloud Configured' : 'Offline / Unconfigured'}
           </span>

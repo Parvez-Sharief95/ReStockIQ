@@ -33,8 +33,8 @@ except ImportError:
 logger = logging.getLogger("inventory_reorder_planner")
 
 app = FastAPI(
-    title="Inventory Reorder Planner API",
-    description="Backend for the Inventory Reorder Planner hackathon project.",
+    title="ReStockIQ API",
+    description="Backend for ReStockIQ — Autonomous Reorder Intelligence.",
     version="0.1.0",
     docs_url="/docs" if settings.app_env == "development" else None,
     redoc_url="/redoc" if settings.app_env == "development" else None,
